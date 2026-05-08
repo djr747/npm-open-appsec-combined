@@ -8,7 +8,7 @@ services:
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
       # Cloud-managed policy: set APPSEC_AGENT_TOKEN.
-      # Local policy mode: leave APPSEC_AGENT_TOKEN empty and provide local_policy.yaml in ./data/openappsec/localconfig.
+      # Local policy mode: leave APPSEC_AGENT_TOKEN empty and provide local_policy.yaml in ./appsec/localconfig.
       - AGENT_TOKEN=${APPSEC_AGENT_TOKEN:-}
       - user_email=${APPSEC_USER_EMAIL}
       # Keep both values for NPM integration compatibility.
@@ -24,7 +24,7 @@ services:
     volumes:
       - ./data:/data
       - ./letsencrypt:/etc/letsencrypt
-      - ./data/openappsec/localconfig:/ext/appsec
-      - ./data/openappsec/conf:/etc/cp/conf
-      - ./data/openappsec/data:/etc/cp/data
-      - ./data/openappsec/logs:/var/log/nano_agent
+      - ./appsec/localconfig:/ext/appsec
+      - ./appsec/conf:/etc/cp/conf
+      - ./appsec/data:/etc/cp/data
+      - ./appsec/logs:/var/log/nano_agent

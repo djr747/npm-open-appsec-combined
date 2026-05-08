@@ -46,10 +46,20 @@ For cloud-managed policy (primary use case), set these environment variables on 
 
 Local policy mode is also supported in the same single-container setup.
 
-- Leave `AGENT_TOKEN` empty (no cloud profile connection)
+- Leave `AGENT_TOKEN` unset (no cloud profile connection)
 - Keep `autoPolicyLoad=true`
-- Place `local_policy.yaml` under the mounted `/ext/appsec` path (example: `./data/openappsec/localconfig/local_policy.yaml`)
+- Place `local_policy.yaml` under the mounted `/ext/appsec` path (host-side: `./appsec/localconfig/local_policy.yaml`)
 - Keep `registered_server=NGINX` and `nginxproxymanager=true`
+
+Download a starter policy file:
+
+```bash
+mkdir -p ./appsec/localconfig
+curl -fsSL https://raw.githubusercontent.com/openappsec/open-appsec-npm/main/deployment/local_policy.yaml \
+     -o ./appsec/localconfig/local_policy.yaml
+```
+
+See `examples/docker-compose.local-policy.yml` for a ready-to-use deployment.
 
 ## No IPC requirement between containers
 
@@ -108,11 +118,13 @@ The integration test builds the image, starts one container, and verifies:
 - NPM backend process is running
 - NPM UI endpoint on port `81` responds (`200`/`301`/`302`)
 
-## Example deployment
+## Example deployments
 
-Example file:
+Two compose files are provided under `examples/`:
 
-- `examples/docker-compose.cloud-managed.yml`
+### Cloud-managed (`examples/docker-compose.cloud-managed.yml`)
+
+Connects to the open-appsec SaaS portal for policy management.
 
 Set at least:
 
@@ -124,11 +136,27 @@ Optional and recommended:
 - `PUID`
 - `PGID`
 
-Mount layout:
+### Locally managed (`examples/docker-compose.local-policy.yml`)
 
-- NPM state in `./data`
-- Let's Encrypt state in `./letsencrypt`
-- open-appsec local config in `./data/openappsec/localconfig`
-- open-appsec config in `./data/openappsec/conf`
-- open-appsec data in `./data/openappsec/data`
-- open-appsec logs in `./data/openappsec/logs`
+Runs fully offline using a local `local_policy.yaml` — no cloud token needed.
+
+Before starting:
+
+```bash
+mkdir -p ./appsec/localconfig
+curl -fsSL https://raw.githubusercontent.com/openappsec/open-appsec-npm/main/deployment/local_policy.yaml \
+     -o ./appsec/localconfig/local_policy.yaml
+```
+
+### Mount layout (both modes)
+
+Both compose files use the same host-side directory layout to keep NPM state and open-appsec state cleanly separated:
+
+| Host path | Container path | Purpose |
+|---|---|---|
+| `./data` | `/data` | NPM state (database, proxy configs) |
+| `./letsencrypt` | `/etc/letsencrypt` | Let's Encrypt certificates |
+| `./appsec/localconfig` | `/ext/appsec` | Local policy / config exchange |
+| `./appsec/conf` | `/etc/cp/conf` | open-appsec agent configuration |
+| `./appsec/data` | `/etc/cp/data` | open-appsec agent data / ML model |
+| `./appsec/logs` | `/var/log/nano_agent` | open-appsec agent logs |

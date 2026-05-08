@@ -20,13 +20,15 @@ trap cleanup EXIT
 mkdir -p \
     "${TEST_TMP_DIR}/data" \
     "${TEST_TMP_DIR}/letsencrypt" \
-    "${TEST_TMP_DIR}/openappsec/localconfig" \
-    "${TEST_TMP_DIR}/openappsec/conf" \
-    "${TEST_TMP_DIR}/openappsec/data" \
-    "${TEST_TMP_DIR}/openappsec/logs"
+    "${TEST_TMP_DIR}/appsec/localconfig" \
+    "${TEST_TMP_DIR}/appsec/conf" \
+    "${TEST_TMP_DIR}/appsec/data" \
+    "${TEST_TMP_DIR}/appsec/logs"
 
-cat > "${TEST_TMP_DIR}/openappsec/localconfig/local_policy.yaml" <<'EOF'
-appSecClassName: "NginxManager"
+# Minimal valid local policy so autoPolicyLoad has something to parse.
+cat > "${TEST_TMP_DIR}/appsec/localconfig/local_policy.yaml" <<'EOF'
+default:
+  mode: prevent-learn
 EOF
 
 if [ "${SKIP_BUILD}" != "1" ]; then
@@ -44,10 +46,10 @@ docker run -d --name "${CONTAINER_NAME}" \
     -e autoPolicyLoad=true \
     -v "${TEST_TMP_DIR}/data:/data" \
     -v "${TEST_TMP_DIR}/letsencrypt:/etc/letsencrypt" \
-    -v "${TEST_TMP_DIR}/openappsec/localconfig:/ext/appsec" \
-    -v "${TEST_TMP_DIR}/openappsec/conf:/etc/cp/conf" \
-    -v "${TEST_TMP_DIR}/openappsec/data:/etc/cp/data" \
-    -v "${TEST_TMP_DIR}/openappsec/logs:/var/log/nano_agent" \
+    -v "${TEST_TMP_DIR}/appsec/localconfig:/ext/appsec" \
+    -v "${TEST_TMP_DIR}/appsec/conf:/etc/cp/conf" \
+    -v "${TEST_TMP_DIR}/appsec/data:/etc/cp/data" \
+    -v "${TEST_TMP_DIR}/appsec/logs:/var/log/nano_agent" \
     -p 18080:80 \
     -p 18081:81 \
     -p 18443:443 \
