@@ -61,11 +61,7 @@ while true; do
         exit 1
     fi
 
-    if UI_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18081/)"; then
-        :
-    else
-        UI_STATUS="curl_error"
-    fi
+    UI_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18081/ 2>/dev/null || echo "curl_error")"
     if docker exec "${CONTAINER_NAME}" pgrep -f cp-nano-watchdog >/dev/null 2>&1 \
         && docker exec "${CONTAINER_NAME}" pgrep -x nginx >/dev/null 2>&1 \
         && docker exec "${CONTAINER_NAME}" pgrep -f "node .*index.js" >/dev/null 2>&1 \
