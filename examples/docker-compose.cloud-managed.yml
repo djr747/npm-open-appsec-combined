@@ -58,7 +58,8 @@ services:
     volumes:
       # Keep CrowdSec state in a host path (same pattern as other services).
       - ./crowdsec/data:/var/lib/crowdsec/data
-      # Declarative acquisition config (included in this repo).
+      # Declarative acquisition config (included in this repo at ./crowdsec/acquis.d).
+      # Run docker compose from the repository root so this relative path resolves correctly.
       - ./crowdsec/acquis.d:/etc/crowdsec/acquis.d:ro
       # NPM per-host access logs: /data/logs/proxy-host-*_access.log
       - ./data/logs:/var/log/npm:ro

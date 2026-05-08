@@ -257,7 +257,7 @@ jobs:
         run: |
           set -euo pipefail
           sarif_path="${{ steps.grype.outputs.sarif }}"
-          if [ -z "${sarif_path}" ] || [ ! -s "${sarif_path}" ]; then
+          if [ -z "${sarif_path}" ] || [ ! -f "${sarif_path}" ] || [ ! -s "${sarif_path}" ]; then
             echo "::warning::No SARIF output produced by Grype at '${sarif_path}'. Skipping upload."
             echo "valid=false" >> "${GITHUB_OUTPUT}"
             exit 0
