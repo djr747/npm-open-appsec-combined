@@ -30,12 +30,9 @@ For cloud-managed policy (primary use case), set these environment variables on 
   - Profile/API token from the open-appsec Web UI/SaaS portal
 - `user_email`
   - Deployment operator email
-- `registered_server`
-  - Set to `NGINX`
-- `nginxproxymanager`
-  - Set to `true` for NPM integration behavior
 
-`registered_server` and `nginxproxymanager` are intentionally both kept for compatibility with open-appsec's generic agent registration path and the NPM-specific integration path.
+`registered_server=NGINX` and `nginxproxymanager=true` are baked into this combined image as
+defaults, so you do not need to set them in compose unless you explicitly want to override them.
 
 ### Common optional variables
 
@@ -49,7 +46,6 @@ Local policy mode is also supported in the same single-container setup.
 - Leave `AGENT_TOKEN` unset (no cloud profile connection)
 - Keep `autoPolicyLoad=true`
 - Place `local_policy.yaml` under the mounted `/ext/appsec` path (host-side: `./appsec/localconfig/local_policy.yaml`)
-- Keep `registered_server=NGINX` and `nginxproxymanager=true`
 
 Download a starter policy file:
 

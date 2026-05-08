@@ -11,9 +11,6 @@ services:
       # Local policy mode: leave APPSEC_AGENT_TOKEN empty and provide local_policy.yaml in ./appsec/localconfig.
       - AGENT_TOKEN=${APPSEC_AGENT_TOKEN:-}
       - user_email=${APPSEC_USER_EMAIL}
-      # Keep both values for NPM integration compatibility.
-      - registered_server=NGINX
-      - nginxproxymanager=true
       # Optional:
       - https_proxy=${APPSEC_HTTPS_PROXY:-}
       - autoPolicyLoad=${APPSEC_AUTO_POLICY_LOAD:-true}

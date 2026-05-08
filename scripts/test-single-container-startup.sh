@@ -58,8 +58,6 @@ echo "Starting container in local-policy mode..."
 docker run -d --name "${CONTAINER_NAME}" \
     -e PUID="${PUID}" \
     -e PGID="${PGID}" \
-    -e registered_server=NGINX \
-    -e nginxproxymanager=true \
     -e autoPolicyLoad=true \
     -v "${TEST_TMP_DIR}/data:/data" \
     -v "${TEST_TMP_DIR}/letsencrypt:/etc/letsencrypt" \

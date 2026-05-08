@@ -9,8 +9,6 @@ services:
       # open-appsec (cloud-managed by default; leave AGENT_TOKEN empty to switch to local policy mode)
       - AGENT_TOKEN=${APPSEC_AGENT_TOKEN:-}
       - user_email=${APPSEC_USER_EMAIL:-}
-      - registered_server=NGINX
-      - nginxproxymanager=true
       - autoPolicyLoad=${APPSEC_AUTO_POLICY_LOAD:-true}
       # CrowdSec — fully declarative, no file copies and no NPM UI edits required.
       - CROWDSEC_ENABLED=true

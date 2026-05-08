@@ -86,4 +86,7 @@ RUN mkdir -p /etc/s6-overlay/s6-rc.d/appsec-agent/dependencies.d \
     && touch /etc/s6-overlay/s6-rc.d/nginx/dependencies.d/appsec-agent \
     && touch /etc/s6-overlay/s6-rc.d/user/contents.d/appsec-agent
 
+ENV registered_server=NGINX \
+    nginxproxymanager=true
+
 VOLUME ["/data", "/etc/letsencrypt", "/ext/appsec", "/etc/cp/conf", "/etc/cp/data", "/var/log/nano_agent"]
