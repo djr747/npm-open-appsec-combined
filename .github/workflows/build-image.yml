@@ -244,8 +244,12 @@ jobs:
       # can invoke it directly here without a separate installation step.
       - name: Print vulnerability table and fail on high
         env:
+          # Same workaround as the SARIF step: skip DB age validation so a
+          # stale cached DB on an ephemeral runner doesn't hide the real results.
           GRYPE_DB_VALIDATE_AGE: "false"
         run: |
+          # --fail-on high exits non-zero when any finding is high or critical,
+          # making the job fail so vulnerabilities cannot be silently ignored.
           grype "${{ needs.merge.outputs.image_ref }}" \
             --fail-on high \
             -o table
