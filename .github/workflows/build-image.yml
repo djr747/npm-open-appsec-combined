@@ -183,6 +183,8 @@ jobs:
         run: |
           [ -n "${DOCKER_METADATA_OUTPUT_JSON:-}" ] \
             || { echo "::error::DOCKER_METADATA_OUTPUT_JSON is empty"; exit 1; }
+          jq -e '.tags and (.tags | type == "array") and (.tags | length > 0)' <<< "${DOCKER_METADATA_OUTPUT_JSON}" > /dev/null \
+            || { echo "::error::Metadata JSON is missing a non-empty tags array"; exit 1; }
 
           # Build the list of -t flags from metadata-action output (one tag per line).
           TAG_FLAGS=$(jq -r '.tags | map("-t " + .) | join(" ")' <<< "${DOCKER_METADATA_OUTPUT_JSON}") \

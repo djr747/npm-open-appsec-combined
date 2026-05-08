@@ -59,6 +59,8 @@ location = /crowdsec-check {
         return 204;
     }
 
+    # CrowdSec AppSec is called on its root path; the original client URI is
+    # forwarded in X-Forwarded-URI for inspection.
     proxy_pass http://crowdsec_appsec/;
     proxy_pass_request_body off;
     proxy_set_header Content-Length "";
