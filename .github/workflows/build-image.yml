@@ -222,7 +222,7 @@ jobs:
       # Grype (anchore/scan-action) is fully free and requires no token or account.
       # It scans the published image and writes results as SARIF for upload to the
       # GitHub Code Scanning Security tab.
-      - name: Grype container scan
+      - name: Grype container scan (SARIF)
         id: grype
         uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
         env:
@@ -234,10 +234,25 @@ jobs:
           severity-cutoff: high
           output-format: sarif
           cache-db: false
+          # Do not fail here; let the table step below be the gate.
           fail-build: false
+
+      # Print a human-readable table of vulnerabilities to the job log so findings
+      # are visible without opening Code Scanning. Also fails the job when high or
+      # critical vulnerabilities are found, surfacing them for remediation.
+      # anchore/scan-action installs the grype binary and adds it to PATH, so we
+      # can invoke it directly here without a separate installation step.
+      - name: Print vulnerability table and fail on high
+        env:
+          GRYPE_DB_VALIDATE_AGE: "false"
+        run: |
+          grype "${{ needs.merge.outputs.image_ref }}" \
+            --fail-on high \
+            -o table
 
       - name: Validate generated SARIF
         id: validate_sarif
+        if: always()
         run: |
           set -euo pipefail
           sarif_path="${{ steps.grype.outputs.sarif }}"
@@ -254,7 +269,7 @@ jobs:
           fi
 
       - name: Upload Grype SARIF to GitHub Code Scanning
-        if: steps.validate_sarif.outputs.valid == 'true'
+        if: always() && steps.validate_sarif.outputs.valid == 'true'
         uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
         with:
           sarif_file: ${{ steps.grype.outputs.sarif }}

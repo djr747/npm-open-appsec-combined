@@ -46,34 +46,18 @@ services:
     image: docker.io/crowdsecurity/crowdsec:latest
     container_name: crowdsec
     restart: unless-stopped
-    entrypoint:
-      - /bin/bash
-      - -ec
-      - |
-        mkdir -p /etc/crowdsec/acquis.d
-        # CrowdSec acquis.d accepts multi-document YAML, so the `---` separator below
-        # intentionally keeps the nginx log reader and the AppSec listener in one
-        # bootstrap file and avoids mounting extra config files just for this example.
-        cat >/etc/crowdsec/acquis.d/npm-open-appsec.yaml <<'EOF'
-        filenames:
-          - /var/log/npm/proxy-host-*_access.log
-        labels:
-          type: nginx
-        ---
-        listen_addr: 0.0.0.0:7422
-        appsec_config: crowdsecurity/appsec-default
-        source: appsec
-        labels:
-          type: appsec
-        EOF
-        exec /docker_start.sh
     environment:
       - TZ=${TZ:-UTC}
       - USE_WAL=true
+      # CrowdSec AppSec runs inline over port 7422; no extra bouncer sidecar needed.
       - COLLECTIONS=crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules
     volumes:
       - crowdsec_config:/etc/crowdsec
       - crowdsec_data:/var/lib/crowdsec/data
+      # Declarative acquisition config: nginx log reader + AppSec listener.
+      # Bind-mounted read-only so no shell script is needed to write the file.
+      - ./crowdsec/acquis.d:/etc/crowdsec/acquis.d:ro
+      # NPM per-host access logs: /data/logs/proxy-host-*_access.log
       - ./data/logs:/var/log/npm:ro
 
 volumes:

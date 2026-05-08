@@ -131,13 +131,14 @@ generates nginx `auth_request` config automatically from container environment v
 ### Quick start
 
 ```bash
-# Start the self-contained CrowdSec stack
-docker compose -f examples/docker-compose.crowdsec.yml up -d
+# Start the cloud-managed open-appsec stack with CrowdSec sidecar
+docker compose -f examples/docker-compose.cloud-managed.yml up -d
 ```
 
 That compose file is fully declarative:
 
-- CrowdSec writes its nginx log acquisition + AppSec listener config inline at container startup
+- CrowdSec acquisition config is provided via a bind-mounted file
+  (`examples/crowdsec/acquis.d/npm-open-appsec.yaml`) — no shell scripts or file copies at runtime
 - `npm-open-appsec` auto-generates the nginx custom includes on first start
 - all proxy hosts are protected automatically through NPM's global `server_proxy.conf` and
   `server_redirect.conf` custom include hooks
@@ -236,7 +237,7 @@ The integration test builds the image, starts one container, and verifies:
 
 ## Example deployments
 
-Three compose files are provided under `examples/`:
+Two compose files are provided under `examples/`:
 
 ### Cloud-managed (`examples/docker-compose.cloud-managed.yml`)
 
@@ -244,6 +245,10 @@ Connects to the open-appsec SaaS portal for policy management and also includes 
 single-sidecar CrowdSec AppSec configuration so the example is deployable as-is.
 If you want cloud-managed open-appsec without CrowdSec enforcement, set
 `CROWDSEC_ENABLED=false`.
+
+The CrowdSec acquisition config is provided declaratively via
+`examples/crowdsec/acquis.d/npm-open-appsec.yaml`, which is bind-mounted read-only into the
+CrowdSec container — no shell scripts or runtime file writes are needed.
 
 Set at least:
 
@@ -267,15 +272,9 @@ curl -fsSL https://raw.githubusercontent.com/openappsec/open-appsec-npm/main/dep
      -o ./appsec/localconfig/local_policy.yaml
 ```
 
-### CrowdSec + open-appsec (`examples/docker-compose.crowdsec.yml`)
+### Mount layout
 
-Standalone compose-only CrowdSec example showing the same self-bootstrapping CrowdSec integration
-pattern without any file copies or NPM UI edits. See the [CrowdSec integration](#crowdsec-integration)
-section above for the full setup guide.
-
-### Mount layout (both modes)
-
-Both compose files use the same host-side directory layout to keep NPM state and open-appsec state cleanly separated:
+The compose files use the same host-side directory layout to keep NPM state and open-appsec state cleanly separated:
 
 | Host path | Container path | Purpose |
 |---|---|---|
