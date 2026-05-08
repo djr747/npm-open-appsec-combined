@@ -13,7 +13,7 @@ Builds a combined NGINX Proxy Manager image with the latest open-appsec attachme
   - `/ext/appsec`
 
 The agent-side state for cloud-managed or standalone open-appsec runs is persisted by the separate `ghcr.io/openappsec/agent` container, not by the NPM container itself.
-The recommended deployment does **not** require `ipc: host`; it uses a private shared IPC namespace between the NPM container and the agent container instead.
+The recommended deployment does **not** require `ipc: host` or `ipc: shareable`; it uses a shared tmpfs volume mounted at `/dev/shm/check-point` instead.
 
 ## PUID / PGID support
 
@@ -62,7 +62,7 @@ For the cloud-managed / SaaS-managed use case, the important agent environment v
 
 For cloud-managed deployments, use `/cp-nano-agent` without `--standalone`.
 `--standalone` is for locally managed policy mode and is not the primary use case documented here.
-The included compose example uses `ipc: shareable` on the agent and `ipc: service:appsec-agent` on the NPM container, so shared memory stays private to the compose stack instead of requiring host-level IPC access.
+The included compose example follows the NPMplus-style shared-memory layout by mounting a shared tmpfs volume at `/dev/shm/check-point` in both containers, so the attachment/agent IPC stays inside the compose stack without requiring host IPC.
 
 See `examples/docker-compose.cloud-managed.yml` for a working example.
 
@@ -74,7 +74,7 @@ This image is intended to remain compatible with existing CrowdSec-based NPM set
 - It only adds the open-appsec module binaries and one `load_module` line in `nginx.conf`
 - It does not replace the existing `/data/nginx/...` include structure used by NPM custom configuration
 - It does not remove or override CrowdSec-related custom snippets, bouncer configuration, or mounted NPM data
-- The example deployment removes the `ipc: host` requirement by using a private shared IPC namespace instead
+- The example deployment removes the `ipc: host` requirement by using a shared tmpfs mount at `/dev/shm/check-point` instead
 
 In practice, CrowdSec integration should continue to work as long as your existing CrowdSec configuration remains mounted through the normal NPM data/custom config paths.
 
@@ -118,5 +118,6 @@ To keep the layout cleaner, the open-appsec agent state is grouped under `./data
 - open-appsec config in `./data/openappsec/conf`
 - open-appsec data / advanced model storage in `./data/openappsec/data`
 - open-appsec logs in `./data/openappsec/logs`
+- shared attachment/agent memory path in the `shm-volume` tmpfs volume mounted to `/dev/shm/check-point`
 
 This keeps the normal NPM mounts familiar while co-locating open-appsec state beneath the main data directory in a way that is closer to NPMplus-style organization.
