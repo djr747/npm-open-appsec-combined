@@ -101,4 +101,4 @@ To keep the layout cleaner, the open-appsec agent state is grouped under `./data
 - open-appsec data / advanced model storage in `./data/openappsec/data`
 - open-appsec logs in `./data/openappsec/logs`
 
-This keeps the normal NPM mounts familiar while colocating open-appsec state beneath the main data directory in a way that is closer to NPMplus-style organization.
+This keeps the normal NPM mounts familiar while co-locating open-appsec state beneath the main data directory in a way that is closer to NPMplus-style organization.

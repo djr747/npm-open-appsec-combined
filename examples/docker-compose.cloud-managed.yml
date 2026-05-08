@@ -11,6 +11,7 @@ services:
     volumes:
       - ./data:/data
       - ./letsencrypt:/etc/letsencrypt
+      # Keep this shared with the agent container so local policy/config exchange stays in sync.
       - ./data/openappsec/localconfig:/ext/appsec
 
   appsec-agent:
@@ -31,5 +32,6 @@ services:
       - ./data/openappsec/conf:/etc/cp/conf
       - ./data/openappsec/data:/etc/cp/data
       - ./data/openappsec/logs:/var/log/nano_agent
+      # Keep this shared with the NPM container so local policy/config exchange stays in sync.
       - ./data/openappsec/localconfig:/ext/appsec
     command: /cp-nano-agent
