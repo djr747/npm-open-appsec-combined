@@ -181,13 +181,14 @@ jobs:
 
       - name: Create and push multi-arch manifest
         run: |
-          [ -n "${DOCKER_METADATA_OUTPUT_JSON:-}" ] \
-            || { echo "::error::DOCKER_METADATA_OUTPUT_JSON is empty (expected from docker_meta metadata-action output)"; exit 1; }
-          jq -e '.tags and (.tags | type == "array") and (.tags | length > 0)' <<< "${DOCKER_METADATA_OUTPUT_JSON}" > /dev/null \
+          metadata_json='${{ steps.docker_meta.outputs.json }}'
+          [ -n "${metadata_json}" ] \
+            || { echo "::error::steps.docker_meta.outputs.json is empty"; exit 1; }
+          jq -e '.tags and (.tags | type == "array") and (.tags | length > 0)' <<< "${metadata_json}" > /dev/null \
             || { echo "::error::Metadata JSON is missing a non-empty tags array"; exit 1; }
 
           # Build the list of -t flags from metadata-action output (one tag per line).
-          TAG_FLAGS=$(jq -r '.tags | map("-t " + .) | join(" ")' <<< "${DOCKER_METADATA_OUTPUT_JSON}") \
+          TAG_FLAGS=$(jq -r '.tags | map("-t " + .) | join(" ")' <<< "${metadata_json}") \
             || { echo "::error::Failed to parse tags from metadata"; exit 1; }
 
           # imagetools create assembles a manifest list from the two per-platform digests
@@ -258,7 +259,7 @@ jobs:
           set -euo pipefail
           sarif_path="${{ steps.grype.outputs.sarif }}"
           if [ -z "${sarif_path}" ] || [ ! -f "${sarif_path}" ] || [ ! -s "${sarif_path}" ]; then
-            echo "::warning::No SARIF output produced by Grype at '${sarif_path}'. Skipping upload."
+            echo "::error::No SARIF output produced by Grype at '${sarif_path}'. Skipping upload."
             echo "valid=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
