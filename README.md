@@ -8,11 +8,10 @@ Builds a combined NGINX Proxy Manager image with the latest open-appsec attachme
 - Attachment build from `openappsec/attachment` git ref (default: `main`)
 - Separate builder stage so gcc/cmake/build dependencies are not left in the final runtime image
 - Minimal NGINX patching to load `libngx_module.so`
-- Persistence mount points for open-appsec data and model/config storage outside the container:
+- Shared persistence mount point in the NPM image:
   - `/ext/appsec`
-  - `/ext/appsec-logs`
-  - `/etc/cp/conf`
-  - `/etc/cp/data`
+
+The agent-side state for cloud-managed or standalone open-appsec runs is persisted by the separate `ghcr.io/openappsec/agent` container, not by the NPM container itself.
 
 ## Cloud-managed open-appsec configuration
 
@@ -48,7 +47,7 @@ For the cloud-managed / SaaS-managed use case, the important agent environment v
 - `/var/log/nano_agent`
   - Agent logs
 - `/ext/appsec`
-  - Local policy/config exchange path used by open-appsec integrations
+  - Local policy/config exchange path shared between the NPM container and the agent container
 
 For cloud-managed deployments, use `/cp-nano-agent` without `--standalone`.
 `--standalone` is for locally managed policy mode and is not the primary use case documented here.
@@ -94,6 +93,7 @@ The example also externalizes:
 
 - NPM state in `./data`
 - Let's Encrypt state in `./letsencrypt`
+- shared open-appsec local policy/config exchange in `./appsec-localconfig`
 - open-appsec config in `./appsec-config`
 - open-appsec data / advanced model storage in `./appsec-data`
 - open-appsec logs in `./appsec-logs`

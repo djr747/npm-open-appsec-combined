@@ -36,7 +36,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get -y upgrade -o Dpkg::Options::="--force-confold" \
     && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /usr/lib/nginx/modules /ext/appsec /ext/appsec-logs /etc/cp/conf /etc/cp/data
+RUN mkdir -p /usr/lib/nginx/modules /ext/appsec
 
 COPY --from=attachment-builder /tmp/build_out/lib/libngx_module.so /usr/lib/nginx/modules/libngx_module.so
 COPY --from=attachment-builder /tmp/build_out/lib/libosrc_nginx_attachment_util.so /usr/lib/libosrc_nginx_attachment_util.so
@@ -47,4 +47,4 @@ COPY --from=attachment-builder /tmp/attachment-commit /etc/openappsec-attachment
 RUN grep -q "load_module /usr/lib/nginx/modules/libngx_module.so;" /etc/nginx/nginx.conf \
     || sed -i '/include \/etc\/nginx\/modules\/\*\.conf/a\load_module /usr/lib/nginx/modules/libngx_module.so;' /etc/nginx/nginx.conf
 
-VOLUME ["/data", "/etc/letsencrypt", "/ext/appsec", "/ext/appsec-logs", "/etc/cp/conf", "/etc/cp/data"]
+VOLUME ["/data", "/etc/letsencrypt", "/ext/appsec"]
