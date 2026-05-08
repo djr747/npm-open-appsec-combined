@@ -1,0 +1,105 @@
+name: Build open-appsec NPM image
+
+on:
+  workflow_dispatch:
+    inputs:
+      npm_tag:
+        description: "NPM image tag (defaults to latest upstream release)"
+        required: false
+        type: string
+      attachment_ref:
+        description: "openappsec/attachment git ref (defaults to main)"
+        required: false
+        type: string
+  schedule:
+    - cron: "0 3 * * *"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      npm_tag: ${{ steps.meta.outputs.npm_tag }}
+      attachment_ref: ${{ steps.meta.outputs.attachment_ref }}
+      attachment_sha: ${{ steps.meta.outputs.attachment_sha }}
+      attachment_short_sha: ${{ steps.meta.outputs.attachment_short_sha }}
+    steps:
+      - name: Resolve upstream versions
+        id: meta
+        env:
+          INPUT_NPM_TAG: ${{ inputs.npm_tag }}
+          INPUT_ATTACHMENT_REF: ${{ inputs.attachment_ref }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          npm_tag="${INPUT_NPM_TAG}"
+          if [ -z "${npm_tag}" ]; then
+            npm_tag="$(curl -fsSL \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              https://api.github.com/repos/NginxProxyManager/nginx-proxy-manager/releases/latest \
+              | jq -r '.tag_name')"
+            npm_tag="${npm_tag#v}"
+          fi
+
+          attachment_ref="${INPUT_ATTACHMENT_REF:-main}"
+          attachment_sha="$(git ls-remote https://github.com/openappsec/attachment.git "${attachment_ref}" | awk '{print $1}' | head -n1)"
+          if [ -z "${attachment_sha}" ]; then
+            echo "Unable to resolve openappsec/attachment ref: ${attachment_ref}" >&2
+            exit 1
+          fi
+
+          {
+            echo "npm_tag=${npm_tag}"
+            echo "attachment_ref=${attachment_ref}"
+            echo "attachment_sha=${attachment_sha}"
+            echo "attachment_short_sha=${attachment_sha:0:12}"
+          } >> "${GITHUB_OUTPUT}"
+
+  build:
+    runs-on: ubuntu-latest
+    needs: resolve
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build metadata
+        id: docker_meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=${{ needs.resolve.outputs.npm_tag }}
+            type=raw,value=${{ needs.resolve.outputs.npm_tag }}-oas-${{ needs.resolve.outputs.attachment_short_sha }}
+            type=raw,value=nightly,enable=${{ github.event_name == 'schedule' }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.resolve.outputs.npm_tag }}-oas-${{ needs.resolve.outputs.attachment_short_sha }}
+            io.openappsec.attachment.ref=${{ needs.resolve.outputs.attachment_ref }}
+            io.openappsec.attachment.sha=${{ needs.resolve.outputs.attachment_sha }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.docker_meta.outputs.tags }}
+          labels: ${{ steps.docker_meta.outputs.labels }}
+          build-args: |
+            NPM_TAG=${{ needs.resolve.outputs.npm_tag }}
+            ATTACHMENT_REF=${{ needs.resolve.outputs.attachment_ref }}
