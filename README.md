@@ -242,6 +242,8 @@ Three compose files are provided under `examples/`:
 
 Connects to the open-appsec SaaS portal for policy management and also includes the complete
 single-sidecar CrowdSec AppSec configuration so the example is deployable as-is.
+If you want cloud-managed open-appsec without CrowdSec enforcement, set
+`CROWDSEC_ENABLED=false`.
 
 Set at least:
 
