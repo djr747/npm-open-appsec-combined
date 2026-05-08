@@ -11,10 +11,12 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update \
         cmake \
         dos2unix \
         git \
+        libbrotli-dev \
         libmaxminddb-dev \
         libpcre3-dev \
         libssl-dev \
         libxml2-dev \
+        pkg-config \
         wget \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -23,6 +25,12 @@ RUN git clone https://github.com/openappsec/attachment.git /tmp/attachment \
     && cd /tmp/attachment \
     && git checkout "${ATTACHMENT_REF}" \
     && git rev-parse HEAD > /tmp/attachment-commit
+
+# Install a wget shim so the attachment configuration script fetches nginx source
+# from GitHub (https://github.com/nginx/nginx) instead of nginx.org, which may be
+# unreachable in some CI environments. /usr/local/bin takes PATH priority over /usr/bin.
+COPY scripts/wget-nginx-github-shim.sh /usr/local/bin/wget
+RUN chmod +x /usr/local/bin/wget
 
 RUN nginx -V &> /tmp/nginx.ver \
     && cd /tmp/attachment \
@@ -36,6 +44,9 @@ FROM jc21/nginx-proxy-manager:${NPM_TAG}
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get -y upgrade -o Dpkg::Options::="--force-confold" \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        -o Dpkg::Options::="--force-confold" \
+        procps \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /usr/lib/nginx/modules /ext/appsec /etc/cp/conf /etc/cp/data /var/log/nano_agent /dev/shm/check-point \
