@@ -17,6 +17,7 @@ IMAGE_NAME="${IMAGE_NAME:-local/npm-open-appsec:integration}"
 CONTAINER_NAME="npm-open-appsec-it"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-180}"
+CURL_ERROR_CODE="000"  # curl exit code placeholder when the request fails
 PUID=1000
 PGID=1000
 
@@ -24,8 +25,11 @@ TEST_TMP_DIR="$(mktemp -d)"
 
 cleanup() {
     docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
-    docker run --rm -v "${TEST_TMP_DIR}:/mnt" alpine sh -c 'rm -rf /mnt/*' 2>/dev/null || true
-    rmdir "${TEST_TMP_DIR}" 2>/dev/null || true
+    # Container processes run as root inside and may create root-owned files on the
+    # volume mounts. Use a privileged docker container to remove them if direct rm
+    # fails, then clean up the empty temp directory.
+    rm -rf "${TEST_TMP_DIR}" 2>/dev/null         || { docker run --rm -v "${TEST_TMP_DIR}:/mnt" --entrypoint sh alpine                  -c 'rm -rf /mnt/*' >/dev/null 2>&1 || true
+             rm -rf "${TEST_TMP_DIR}" 2>/dev/null || true; }
 }
 trap cleanup EXIT
 
@@ -79,7 +83,7 @@ while true; do
         exit 1
     fi
 
-    UI_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18081/ 2>/dev/null || echo "000")"
+    UI_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18081/ 2>/dev/null || echo "${CURL_ERROR_CODE}")"
 
     if docker exec "${CONTAINER_NAME}" pgrep -f cp-nano-watchdog >/dev/null 2>&1 \
         && docker exec "${CONTAINER_NAME}" pgrep -x nginx >/dev/null 2>&1 \

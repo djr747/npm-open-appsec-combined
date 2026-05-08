@@ -42,6 +42,11 @@ if [[ "$nginx_v" != *"openresty/"* ]]; then
 fi
 
 openresty_ver="$(echo "$nginx_v" | grep -oP '(?<=openresty/)[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
+if [ -z "${openresty_ver}" ]; then
+    echo "wget shim: could not extract OpenResty version from 'nginx -V' output — cannot proceed" >&2
+    echo "wget shim: nginx -V output was: ${nginx_v}" >&2
+    exit 1
+fi
 gh_url="https://github.com/openresty/openresty/releases/download/v${openresty_ver}/openresty-${openresty_ver}.tar.gz"
 
 echo "wget shim: NPM uses openresty/${openresty_ver} — downloading OpenResty source (nginx ${nginx_ver} bundle) from GitHub" >&2

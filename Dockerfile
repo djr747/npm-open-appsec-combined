@@ -27,8 +27,11 @@ RUN git clone https://github.com/openappsec/attachment.git /tmp/attachment \
     && git rev-parse HEAD > /tmp/attachment-commit
 
 # Install a wget shim so the attachment configuration script fetches nginx source
-# from GitHub (https://github.com/nginx/nginx) instead of nginx.org, which may be
-# unreachable in some CI environments. /usr/local/bin takes PATH priority over /usr/bin.
+# from the OpenResty GitHub release (https://github.com/openresty/openresty) instead
+# of nginx.org, which may be unreachable in some CI environments. The shim extracts
+# the bundled nginx source (matching the version running in the NPM container) and
+# repacks it in the layout that the attachment script expects. /usr/local/bin takes
+# PATH priority over /usr/bin.
 COPY scripts/wget-nginx-github-shim.sh /usr/local/bin/wget
 RUN chmod +x /usr/local/bin/wget
 
