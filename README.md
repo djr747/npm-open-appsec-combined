@@ -5,7 +5,7 @@ Builds a single-container NGINX Proxy Manager image with:
 - the open-appsec NGINX attachment module
 - the open-appsec agent runtime in the same container
 
-This removes the cross-container shared-memory/IPC requirement for NPM + open-appsec deployments.
+This removes the cross-container IPC/shared-memory requirement for NPM + open-appsec deployments.
 
 ## What this repo provides
 
@@ -95,6 +95,7 @@ The integration test builds the image, starts one container, and verifies:
 - open-appsec watchdog process is running
 - nginx process is running
 - NPM backend process is running
+- NPM UI endpoint on port `81` responds (`200`/`301`/`302`)
 
 ## Example deployment
 

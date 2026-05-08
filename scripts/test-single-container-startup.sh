@@ -60,9 +60,11 @@ while true; do
         exit 1
     fi
 
+    UI_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18081/ || true)"
     if docker exec "${CONTAINER_NAME}" pgrep -f cp-nano-watchdog >/dev/null 2>&1 \
         && docker exec "${CONTAINER_NAME}" pgrep -x nginx >/dev/null 2>&1 \
-        && docker exec "${CONTAINER_NAME}" pgrep -f "node .*index.js" >/dev/null 2>&1; then
+        && docker exec "${CONTAINER_NAME}" pgrep -f "node .*index.js" >/dev/null 2>&1 \
+        && [[ "${UI_STATUS}" =~ ^(200|301|302)$ ]]; then
         break
     fi
 
@@ -77,4 +79,5 @@ while true; do
 done
 
 docker exec "${CONTAINER_NAME}" test -f /etc/openappsec-attachment.commit
+echo "UI endpoint returned status: ${UI_STATUS}"
 echo "Integration startup test passed."

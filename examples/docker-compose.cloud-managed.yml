@@ -1,6 +1,6 @@
 services:
   npm-open-appsec:
-    # Matches GHCR publish pattern in this repo's workflow: ghcr.io/${{ github.repository }}
+    # Set IMAGE_REPOSITORY to the same owner/repo path used by your GHCR publishing workflow.
     image: ghcr.io/${IMAGE_REPOSITORY:-your-org-or-user/npm-open-appsec-combined}:${NPM_IMAGE_TAG:-latest}
     container_name: npm-open-appsec
     restart: unless-stopped
