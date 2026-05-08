@@ -12,7 +12,6 @@ services:
       - ./data:/data
       - ./letsencrypt:/etc/letsencrypt
       - ./appsec-localconfig:/ext/appsec
-      - ./appsec-logs:/ext/appsec-logs
 
   appsec-agent:
     image: ghcr.io/openappsec/agent:latest

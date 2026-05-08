@@ -53,7 +53,7 @@ For the cloud-managed / SaaS-managed use case, the important agent environment v
 For cloud-managed deployments, use `/cp-nano-agent` without `--standalone`.
 `--standalone` is for locally managed policy mode and is not the primary use case documented here.
 
-See `/home/runner/work/npm-open-appsec-combined/npm-open-appsec-combined/examples/docker-compose.cloud-managed.yml` for a working example.
+See `examples/docker-compose.cloud-managed.yml` for a working example.
 
 ## CrowdSec compatibility
 
