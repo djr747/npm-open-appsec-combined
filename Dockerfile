@@ -9,11 +9,13 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update \
         build-essential \
         ca-certificates \
         cmake \
+        dos2unix \
         git \
         libmaxminddb-dev \
         libpcre3-dev \
         libssl-dev \
         libxml2-dev \
+        wget \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
@@ -30,8 +32,6 @@ RUN nginx -V &> /tmp/nginx.ver \
 
 FROM jc21/nginx-proxy-manager:${NPM_TAG}
 
-ARG ATTACHMENT_REF=main
-
 RUN DEBIAN_FRONTEND=noninteractive apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get -y upgrade -o Dpkg::Options::="--force-confold" \
     && rm -rf /var/lib/apt/lists/*
@@ -46,8 +46,5 @@ COPY --from=attachment-builder /tmp/attachment-commit /etc/openappsec-attachment
 
 RUN grep -q "load_module /usr/lib/nginx/modules/libngx_module.so;" /etc/nginx/nginx.conf \
     || sed -i '/include \/etc\/nginx\/modules\/\*\.conf/a\load_module /usr/lib/nginx/modules/libngx_module.so;' /etc/nginx/nginx.conf
-
-RUN grep -q "^tcp_worker_processes" /etc/nginx/nginx.conf \
-    || sed -i '/http {/a\\tcp_worker_processes           auto;' /etc/nginx/nginx.conf
 
 VOLUME ["/data", "/etc/letsencrypt", "/ext/appsec", "/ext/appsec-logs", "/etc/cp/conf", "/etc/cp/data"]

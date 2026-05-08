@@ -1,0 +1,36 @@
+services:
+  npm-open-appsec:
+    image: ghcr.io/djr747/npm-open-appsec-combined:${NPM_IMAGE_TAG:-latest}
+    container_name: npm-open-appsec
+    restart: unless-stopped
+    ipc: host
+    ports:
+      - "80:80"
+      - "81:81"
+      - "443:443"
+    volumes:
+      - ./data:/data
+      - ./letsencrypt:/etc/letsencrypt
+      - ./appsec-localconfig:/ext/appsec
+      - ./appsec-logs:/ext/appsec-logs
+
+  appsec-agent:
+    image: ghcr.io/openappsec/agent:latest
+    container_name: appsec-agent
+    restart: unless-stopped
+    network_mode: service:npm-open-appsec
+    ipc: host
+    environment:
+      # Required for cloud-managed policy:
+      - AGENT_TOKEN=${APPSEC_AGENT_TOKEN}
+      - user_email=${APPSEC_USER_EMAIL}
+      - registered_server=NGINX
+      # Optional:
+      - https_proxy=${APPSEC_HTTPS_PROXY:-}
+      - autoPolicyLoad=${APPSEC_AUTO_POLICY_LOAD:-false}
+    volumes:
+      - ./appsec-config:/etc/cp/conf
+      - ./appsec-data:/etc/cp/data
+      - ./appsec-logs:/var/log/nano_agent
+      - ./appsec-localconfig:/ext/appsec
+    command: /cp-nano-agent
