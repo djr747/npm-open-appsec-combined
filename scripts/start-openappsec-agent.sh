@@ -5,6 +5,7 @@ set -euo pipefail
 INSTALL_MARKER="/etc/cp/.npm_openappsec_installed"
 ADVANCED_MODEL="/advanced-model/open-appsec-advanced-model.tgz"
 WATCHDOG_PID=""
+WATCHDOG_LOG="/var/log/nano_agent/watchdog.log"
 
 mkdir -p /etc/cp/conf /etc/cp/data /var/log/nano_agent /ext/appsec /dev/shm/check-point
 
@@ -29,7 +30,7 @@ install_agent_if_needed() {
 
 start_watchdog() {
     touch /etc/cp/watchdog/wd.startup
-    /etc/cp/watchdog/cp-nano-watchdog >/dev/null 2>&1 &
+    /etc/cp/watchdog/cp-nano-watchdog >>"${WATCHDOG_LOG}" 2>&1 &
     WATCHDOG_PID="$!"
 }
 
@@ -52,6 +53,7 @@ fi
 start_watchdog
 
 while true; do
+    # External trigger file used by open-appsec runtime components to request watchdog restart.
     if [ -f /tmp/restart_watchdog ]; then
         rm -f /tmp/restart_watchdog
         kill -TERM "${WATCHDOG_PID}" 2>/dev/null || true
