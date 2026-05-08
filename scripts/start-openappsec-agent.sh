@@ -60,7 +60,8 @@ location = /crowdsec-check {
     }
 
     # CrowdSec AppSec is called on its root path; the original client URI is
-    # forwarded in X-Forwarded-URI for inspection.
+    # forwarded in X-Forwarded-URI for inspection. Keep the upstream name here
+    # aligned with the crowdsec_appsec upstream defined in http_top.conf.
     proxy_pass http://crowdsec_appsec/;
     proxy_pass_request_body off;
     proxy_set_header Content-Length "";
@@ -95,6 +96,8 @@ NGINX_CONF
 # /data/nginx/custom/http_top.conf manually.
 configure_crowdsec_nginx() {
     local crowdsec_enabled="${CROWDSEC_ENABLED:-false}"
+    # The default assumes the CrowdSec service is named "crowdsec" in Compose.
+    # Override CROWDSEC_APPSEC_URL if you rename that service or use another hostname.
     local appsec_url="${CROWDSEC_APPSEC_URL:-crowdsec:7422}"
     local skip_hosts="${CROWDSEC_SKIP_HOSTS:-}"
     local http_top="/data/nginx/custom/http_top.conf"

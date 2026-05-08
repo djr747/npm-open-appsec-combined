@@ -182,7 +182,7 @@ jobs:
       - name: Create and push multi-arch manifest
         run: |
           [ -n "${DOCKER_METADATA_OUTPUT_JSON:-}" ] \
-            || { echo "::error::DOCKER_METADATA_OUTPUT_JSON is empty"; exit 1; }
+            || { echo "::error::DOCKER_METADATA_OUTPUT_JSON is empty (expected from docker_meta metadata-action output)"; exit 1; }
           jq -e '.tags and (.tags | type == "array") and (.tags | length > 0)' <<< "${DOCKER_METADATA_OUTPUT_JSON}" > /dev/null \
             || { echo "::error::Metadata JSON is missing a non-empty tags array"; exit 1; }
 
