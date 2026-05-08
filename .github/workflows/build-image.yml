@@ -1,0 +1,164 @@
+name: Build open-appsec NPM image
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      npm_tag:
+        description: "NPM image tag (defaults to latest upstream release)"
+        required: false
+        type: string
+      attachment_ref:
+        description: "openappsec/attachment git ref (defaults to main)"
+        required: false
+        type: string
+  schedule:
+    - cron: "0 3 * * *"
+
+permissions:
+  contents: read
+  packages: write
+  security-events: write  # required to upload Grype SARIF to GitHub Code Scanning
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      npm_tag: ${{ steps.meta.outputs.npm_tag }}
+      attachment_ref: ${{ steps.meta.outputs.attachment_ref }}
+      attachment_sha: ${{ steps.meta.outputs.attachment_sha }}
+      attachment_short_sha: ${{ steps.meta.outputs.attachment_short_sha }}
+    steps:
+      - name: Resolve upstream versions
+        id: meta
+        env:
+          INPUT_NPM_TAG: ${{ inputs.npm_tag }}
+          INPUT_ATTACHMENT_REF: ${{ inputs.attachment_ref }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # On pull requests use 'latest' as the NPM tag to avoid an extra API
+          # call; the exact upstream release version is only needed for published tags.
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            npm_tag="latest"
+          else
+            npm_tag="${INPUT_NPM_TAG}"
+            if [ -z "${npm_tag}" ]; then
+              npm_tag="$(curl -fsSL \
+                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                https://api.github.com/repos/NginxProxyManager/nginx-proxy-manager/releases/latest \
+                | jq -r '.tag_name')"
+              npm_tag="${npm_tag#v}"
+            fi
+          fi
+
+          attachment_ref="${INPUT_ATTACHMENT_REF:-main}"
+          attachment_sha="$(git ls-remote https://github.com/openappsec/attachment.git "${attachment_ref}" | awk '{print $1}' | head -n1)"
+          if [ -z "${attachment_sha}" ]; then
+            echo "Unable to resolve openappsec/attachment ref: ${attachment_ref}" >&2
+            exit 1
+          fi
+
+          {
+            echo "npm_tag=${npm_tag}"
+            echo "attachment_ref=${attachment_ref}"
+            echo "attachment_sha=${attachment_sha}"
+            echo "attachment_short_sha=${attachment_sha:0:12}"
+          } >> "${GITHUB_OUTPUT}"
+
+  build:
+    runs-on: ubuntu-latest
+    needs: resolve
+    outputs:
+      # Primary image ref passed to the scan job (first tag from metadata-action).
+      image_ref: ${{ steps.image_ref.outputs.image_ref }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # QEMU lets the amd64 runner build and run arm64 binaries via emulation.
+      # Note: arm64 compilation (nginx source + cmake) is significantly slower
+      # under QEMU than on native hardware.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build metadata
+        id: docker_meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=pr
+            type=raw,value=${{ needs.resolve.outputs.npm_tag }},enable=${{ github.event_name != 'pull_request' }}
+            type=raw,value=${{ needs.resolve.outputs.npm_tag }}-oas-${{ needs.resolve.outputs.attachment_short_sha }},enable=${{ github.event_name != 'pull_request' }}
+            type=raw,value=nightly,enable=${{ github.event_name == 'schedule' }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.resolve.outputs.npm_tag }}-oas-${{ needs.resolve.outputs.attachment_short_sha }}
+            io.openappsec.attachment.ref=${{ needs.resolve.outputs.attachment_ref }}
+            io.openappsec.attachment.sha=${{ needs.resolve.outputs.attachment_sha }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.docker_meta.outputs.tags }}
+          labels: ${{ steps.docker_meta.outputs.labels }}
+          build-args: |
+            NPM_TAG=${{ needs.resolve.outputs.npm_tag }}
+            ATTACHMENT_REF=${{ needs.resolve.outputs.attachment_ref }}
+
+      - name: Export primary image ref for scan
+        id: image_ref
+        run: |
+          # Use the first tag produced by metadata-action as the scan target.
+          # For PRs this is pr-N; for scheduled/dispatch runs it is the npm version tag.
+          echo "image_ref=$(echo '${{ steps.docker_meta.outputs.tags }}' | head -1)" \
+            >> "${GITHUB_OUTPUT}"
+
+  scan:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Grype (anchore/scan-action) is fully free and requires no token or account.
+      # It scans the published image and writes results as SARIF for upload to the
+      # GitHub Code Scanning Security tab.
+      - name: Grype container scan
+        id: grype
+        uses: anchore/scan-action@v3
+        with:
+          image: ${{ needs.build.outputs.image_ref }}
+          severity-cutoff: high
+          output-format: sarif
+          fail-build: false
+
+      - name: Upload Grype SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.grype.outputs.sarif }}
+        continue-on-error: true

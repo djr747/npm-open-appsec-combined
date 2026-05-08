@@ -1,0 +1,32 @@
+services:
+  npm-open-appsec:
+    # Set IMAGE_REPOSITORY (via .env or export) to your GHCR owner/repo path.
+    image: ghcr.io/${IMAGE_REPOSITORY:-djr747/npm-open-appsec-combined}:${NPM_IMAGE_TAG:-latest}
+    container_name: npm-open-appsec
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      # No AGENT_TOKEN in local-policy mode - the agent runs fully offline.
+      # registered_server: tells the agent which attachment type is in use.
+      # nginxproxymanager: activates NPM-specific integration behaviour in the agent.
+      - registered_server=NGINX
+      - nginxproxymanager=true
+      # autoPolicyLoad=true causes the agent to reload policy from /ext/appsec whenever
+      # local_policy.yaml changes, without requiring a restart.
+      - autoPolicyLoad=true
+    ports:
+      - "80:80"
+      - "81:81"
+      - "443:443"
+    volumes:
+      - ./data:/data
+      - ./letsencrypt:/etc/letsencrypt
+      # Place local_policy.yaml here before starting the container.
+      # Download a starter file:
+      #   curl -fsSL https://raw.githubusercontent.com/openappsec/open-appsec-npm/main/deployment/local_policy.yaml \
+      #        -o ./appsec/localconfig/local_policy.yaml
+      - ./appsec/localconfig:/ext/appsec
+      - ./appsec/conf:/etc/cp/conf
+      - ./appsec/data:/etc/cp/data
+      - ./appsec/logs:/var/log/nano_agent
