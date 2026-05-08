@@ -30,25 +30,41 @@ RUN nginx -V &> /tmp/nginx.ver \
     && cmake -DCMAKE_INSTALL_PREFIX=/tmp/build_out . \
     && make -j"$(nproc)" install
 
+FROM ghcr.io/openappsec/agent:latest AS appsec-installers
+
 FROM jc21/nginx-proxy-manager:${NPM_TAG}
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get -y upgrade -o Dpkg::Options::="--force-confold" \
     && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /usr/lib/nginx/modules /ext/appsec \
-    && sed -i '/"\/etc\/nginx\/conf.d"/a\ \t"/ext/appsec"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh
+RUN mkdir -p /usr/lib/nginx/modules /ext/appsec /etc/cp/conf /etc/cp/data /var/log/nano_agent /dev/shm/check-point \
+    && sed -i '/"\/etc\/nginx\/conf.d"/a\ \t"\/ext\/appsec"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
+    && sed -i '/"\/ext\/appsec"/a\ \t"\/etc\/cp\/conf"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
+    && sed -i '/"\/etc\/cp\/conf"/a\ \t"\/etc\/cp\/data"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
+    && sed -i '/"\/etc\/cp\/data"/a\ \t"\/var\/log\/nano_agent"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh
 
 COPY --from=attachment-builder /tmp/build_out/lib/libngx_module.so /usr/lib/nginx/modules/libngx_module.so
 COPY --from=attachment-builder /tmp/build_out/lib/libosrc_nginx_attachment_util.so /usr/lib/libosrc_nginx_attachment_util.so
 COPY --from=attachment-builder /tmp/build_out/lib/libosrc_compression_utils.so /usr/lib/libosrc_compression_utils.so
 COPY --from=attachment-builder /tmp/build_out/lib/libosrc_shmem_ipc.so /usr/lib/libosrc_shmem_ipc.so
 COPY --from=attachment-builder /tmp/attachment-commit /etc/openappsec-attachment.commit
+COPY --from=appsec-installers /nano-service-installers /nano-service-installers
+COPY scripts/start-openappsec-agent.sh /usr/local/bin/start-openappsec-agent
 
 RUN grep -q '^include /etc/nginx/modules/\*\.conf;$' /etc/nginx/nginx.conf \
     || (echo "Expected /etc/nginx/modules include directive missing from nginx.conf" >&2; exit 1)
 RUN grep -q "load_module /usr/lib/nginx/modules/libngx_module.so;" /etc/nginx/nginx.conf \
     || sed -i '/include \/etc\/nginx\/modules\/\*\.conf/a\load_module /usr/lib/nginx/modules/libngx_module.so;' /etc/nginx/nginx.conf
 RUN grep -q "load_module /usr/lib/nginx/modules/libngx_module.so;" /etc/nginx/nginx.conf
+RUN chmod +x /usr/local/bin/start-openappsec-agent /nano-service-installers/*.sh
 
-VOLUME ["/data", "/etc/letsencrypt", "/ext/appsec"]
+RUN mkdir -p /etc/s6-overlay/s6-rc.d/appsec-agent/dependencies.d \
+    && printf "longrun\n" > /etc/s6-overlay/s6-rc.d/appsec-agent/type \
+    && printf "#!/command/with-contenv bash\nset -e\nexec /usr/local/bin/start-openappsec-agent\n" > /etc/s6-overlay/s6-rc.d/appsec-agent/run \
+    && chmod +x /etc/s6-overlay/s6-rc.d/appsec-agent/run \
+    && touch /etc/s6-overlay/s6-rc.d/appsec-agent/dependencies.d/prepare \
+    && touch /etc/s6-overlay/s6-rc.d/nginx/dependencies.d/appsec-agent \
+    && touch /etc/s6-overlay/s6-rc.d/user/contents.d/appsec-agent
+
+VOLUME ["/data", "/etc/letsencrypt", "/ext/appsec", "/etc/cp/conf", "/etc/cp/data", "/var/log/nano_agent"]

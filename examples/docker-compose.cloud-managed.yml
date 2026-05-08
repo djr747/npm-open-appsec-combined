@@ -3,11 +3,18 @@ services:
     image: ghcr.io/${IMAGE_REPOSITORY:-your-org-or-user/npm-open-appsec-combined}:${NPM_IMAGE_TAG:-latest}
     container_name: npm-open-appsec
     restart: unless-stopped
-    depends_on:
-      - appsec-agent
     environment:
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
+      # Required for cloud-managed policy:
+      - AGENT_TOKEN=${APPSEC_AGENT_TOKEN}
+      - user_email=${APPSEC_USER_EMAIL}
+      - registered_server=NGINX
+      # Required for NPM + open-appsec integration:
+      - nginxproxymanager=true
+      # Optional:
+      - https_proxy=${APPSEC_HTTPS_PROXY:-}
+      - autoPolicyLoad=${APPSEC_AUTO_POLICY_LOAD:-true}
     ports:
       - "80:80"
       - "81:81"
@@ -15,36 +22,7 @@ services:
     volumes:
       - ./data:/data
       - ./letsencrypt:/etc/letsencrypt
-      # Keep this shared with the agent container so local policy/config exchange stays in sync.
       - ./data/openappsec/localconfig:/ext/appsec
-      # Shared tmpfs path used by the attachment/agent instead of host IPC.
-      - shm-volume:/dev/shm/check-point
-
-  appsec-agent:
-    image: ghcr.io/openappsec/agent:latest
-    container_name: appsec-agent
-    restart: unless-stopped
-    environment:
-      # Required for cloud-managed policy:
-      - AGENT_TOKEN=${APPSEC_AGENT_TOKEN}
-      - user_email=${APPSEC_USER_EMAIL}
-      - registered_server=NGINX
-      # Optional:
-      - https_proxy=${APPSEC_HTTPS_PROXY:-}
-      - autoPolicyLoad=${APPSEC_AUTO_POLICY_LOAD:-false}
-    volumes:
       - ./data/openappsec/conf:/etc/cp/conf
       - ./data/openappsec/data:/etc/cp/data
       - ./data/openappsec/logs:/var/log/nano_agent
-      # Keep this shared with the NPM container so local policy/config exchange stays in sync.
-      - ./data/openappsec/localconfig:/ext/appsec
-      # Shared tmpfs path used by the attachment/agent instead of host IPC.
-      - shm-volume:/dev/shm/check-point
-    command: /cp-nano-agent
-
-volumes:
-  shm-volume:
-    driver: local
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
