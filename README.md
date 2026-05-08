@@ -12,6 +12,7 @@ Builds a combined NGINX Proxy Manager image with the latest open-appsec attachme
   - `/ext/appsec`
 
 The agent-side state for cloud-managed or standalone open-appsec runs is persisted by the separate `ghcr.io/openappsec/agent` container, not by the NPM container itself.
+The recommended deployment does **not** require `ipc: host`; it uses a private shared IPC namespace between the NPM container and the agent container instead.
 
 ## Cloud-managed open-appsec configuration
 
@@ -51,6 +52,7 @@ For the cloud-managed / SaaS-managed use case, the important agent environment v
 
 For cloud-managed deployments, use `/cp-nano-agent` without `--standalone`.
 `--standalone` is for locally managed policy mode and is not the primary use case documented here.
+The included compose example uses `ipc: shareable` on the agent and `ipc: service:appsec-agent` on the NPM container, so shared memory stays private to the compose stack instead of requiring host-level IPC access.
 
 See `examples/docker-compose.cloud-managed.yml` for a working example.
 
@@ -62,6 +64,7 @@ This image is intended to remain compatible with existing CrowdSec-based NPM set
 - It only adds the open-appsec module binaries and one `load_module` line in `nginx.conf`
 - It does not replace the existing `/data/nginx/...` include structure used by NPM custom configuration
 - It does not remove or override CrowdSec-related custom snippets, bouncer configuration, or mounted NPM data
+- The example deployment removes the `ipc: host` requirement by using a private shared IPC namespace instead
 
 In practice, CrowdSec integration should continue to work as long as your existing CrowdSec configuration remains mounted through the normal NPM data/custom config paths.
 

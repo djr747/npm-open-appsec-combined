@@ -3,7 +3,9 @@ services:
     image: ghcr.io/djr747/npm-open-appsec-combined:${NPM_IMAGE_TAG:-latest}
     container_name: npm-open-appsec
     restart: unless-stopped
-    ipc: host
+    depends_on:
+      - appsec-agent
+    ipc: service:appsec-agent
     ports:
       - "80:80"
       - "81:81"
@@ -18,8 +20,7 @@ services:
     image: ghcr.io/openappsec/agent:latest
     container_name: appsec-agent
     restart: unless-stopped
-    network_mode: service:npm-open-appsec
-    ipc: host
+    ipc: shareable
     environment:
       # Required for cloud-managed policy:
       - AGENT_TOKEN=${APPSEC_AGENT_TOKEN}
