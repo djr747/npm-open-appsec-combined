@@ -138,7 +138,7 @@ docker compose -f examples/docker-compose.cloud-managed.yml up -d
 That compose file is fully declarative:
 
 - CrowdSec acquisition config is provided via a bind-mounted file
-  (`examples/crowdsec/acquis.d/npm-open-appsec.yaml`) — no shell scripts or file copies at runtime
+  (`crowdsec/acquis.d/npm-open-appsec.yaml`) — already included in this repo (no download needed)
 - `npm-open-appsec` auto-generates the nginx custom includes on first start
 - all proxy hosts are protected automatically through NPM's global `server_proxy.conf` and
   `server_redirect.conf` custom include hooks
@@ -247,7 +247,7 @@ If you want cloud-managed open-appsec without CrowdSec enforcement, set
 `CROWDSEC_ENABLED=false`.
 
 The CrowdSec acquisition config is provided declaratively via
-`examples/crowdsec/acquis.d/npm-open-appsec.yaml`, which is bind-mounted read-only into the
+`crowdsec/acquis.d/npm-open-appsec.yaml`, which is bind-mounted read-only into the
 CrowdSec container — no shell scripts or runtime file writes are needed.
 
 Set at least:
@@ -259,6 +259,15 @@ Optional and recommended:
 
 - `PUID`
 - `PGID`
+- `CROWDSEC_ENROLL_KEY` (optional, to register this CrowdSec instance in CrowdSec Console)
+- `CROWDSEC_ENROLL_INSTANCE_NAME` (optional display name in CrowdSec Console)
+
+If you want CrowdSec account registration, generate an enrollment token in CrowdSec Console and set:
+
+```bash
+export CROWDSEC_ENROLL_KEY="<your-crowdsec-enrollment-key>"
+export CROWDSEC_ENROLL_INSTANCE_NAME="npm-open-appsec-prod"
+```
 
 ### Locally managed (`examples/docker-compose.local-policy.yml`)
 
@@ -284,3 +293,6 @@ The compose files use the same host-side directory layout to keep NPM state and 
 | `./appsec/conf` | `/etc/cp/conf` | open-appsec agent configuration |
 | `./appsec/data` | `/etc/cp/data` | open-appsec agent data / ML model |
 | `./appsec/logs` | `/var/log/nano_agent` | open-appsec agent logs |
+| `./crowdsec/data` | `/var/lib/crowdsec/data` | CrowdSec persistent data |
+| `./crowdsec/acquis.d` | `/etc/crowdsec/acquis.d` | CrowdSec acquisition files (includes `npm-open-appsec.yaml`) |
+| `./data/logs` | `/var/log/npm` | NPM access logs consumed by CrowdSec |

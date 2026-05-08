@@ -51,15 +51,14 @@ services:
       - USE_WAL=true
       # CrowdSec AppSec runs inline over port 7422; no extra bouncer sidecar needed.
       - COLLECTIONS=crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules
+      # Optional CrowdSec Console enrollment.
+      # Set CROWDSEC_ENROLL_KEY to register this instance to your CrowdSec account.
+      - ENROLL_KEY=${CROWDSEC_ENROLL_KEY:-}
+      - ENROLL_INSTANCE_NAME=${CROWDSEC_ENROLL_INSTANCE_NAME:-npm-open-appsec}
     volumes:
-      - crowdsec_config:/etc/crowdsec
-      - crowdsec_data:/var/lib/crowdsec/data
-      # Declarative acquisition config: nginx log reader + AppSec listener.
-      # Bind-mounted read-only so no shell script is needed to write the file.
+      # Keep CrowdSec state in a host path (same pattern as other services).
+      - ./crowdsec/data:/var/lib/crowdsec/data
+      # Declarative acquisition config (included in this repo).
       - ./crowdsec/acquis.d:/etc/crowdsec/acquis.d:ro
       # NPM per-host access logs: /data/logs/proxy-host-*_access.log
       - ./data/logs:/var/log/npm:ro
-
-volumes:
-  crowdsec_config:
-  crowdsec_data:
