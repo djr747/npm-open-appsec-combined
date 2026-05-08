@@ -142,23 +142,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Snyk container scanning requires SNYK_TOKEN to be configured as a
-      # repository secret (Settings → Secrets → Actions → New repository secret).
-      # If the secret is absent the step fails gracefully and is skipped via
-      # continue-on-error; no SARIF file is produced and the upload is skipped.
-      - name: Snyk container scan
-        id: snyk
-        uses: snyk/actions/docker@master
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      # Grype (anchore/scan-action) is fully free and requires no token or account.
+      # It scans the published image and writes results as SARIF for upload to the
+      # GitHub Code Scanning Security tab.
+      - name: Grype container scan
+        id: grype
+        uses: anchore/scan-action@v3
         with:
           image: ${{ needs.build.outputs.image_ref }}
-          args: --severity-threshold=high --sarif-file-output=snyk.sarif
-        continue-on-error: true
+          severity-cutoff: high
+          output-format: sarif
+          fail-build: false
 
-      - name: Upload Snyk SARIF to GitHub Code Scanning
-        if: ${{ hashFiles('snyk.sarif') != '' }}
+      - name: Upload Grype SARIF to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: snyk.sarif
+          sarif_file: ${{ steps.grype.outputs.sarif }}
         continue-on-error: true
