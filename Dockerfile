@@ -45,6 +45,11 @@ FROM ghcr.io/openappsec/agent:latest AS appsec-installers
 
 FROM jc21/nginx-proxy-manager:${NPM_TAG}
 
+# Apply all available security patches from the Debian 12 repository.
+# `apt-get -y upgrade` upgrades every installed package to the latest version
+# provided by the upstream repos, closing any CVEs that have been fixed there.
+# Vulnerabilities that remain after this step have no available fix yet in
+# Debian 12 and will be resolved by the nightly rebuild once a fix is released.
 RUN DEBIAN_FRONTEND=noninteractive apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get -y upgrade -o Dpkg::Options::="--force-confold" \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

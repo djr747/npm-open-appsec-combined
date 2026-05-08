@@ -220,39 +220,36 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       # Grype (anchore/scan-action) is fully free and requires no token or account.
-      # It scans the published image and writes results as SARIF for upload to the
-      # GitHub Code Scanning Security tab.
-      - name: Grype container scan (SARIF)
-        id: grype
+      # Step 1: table output so findings are visible directly in the job log.
+      # fail-build: true makes the job fail when high or critical findings exist,
+      # so vulnerabilities cannot be silently ignored.
+      - name: Grype container scan (table — fail on high)
+        id: grype_table
         uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
         env:
-          # Network/cache issues can leave the DB stale on ephemeral runners.
-          # Keep scan output generation reliable by not hard-failing on DB age.
+          # Skip DB age validation on ephemeral runners to avoid false failures.
+          GRYPE_DB_VALIDATE_AGE: "false"
+        with:
+          image: ${{ needs.merge.outputs.image_ref }}
+          severity-cutoff: high
+          output-format: table
+          cache-db: false
+          fail-build: true
+
+      # Step 2: SARIF output for GitHub Code Scanning. Runs even if the table
+      # step above failed (so Code Scanning always receives results).
+      - name: Grype container scan (SARIF — for Code Scanning upload)
+        id: grype
+        if: always()
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        env:
           GRYPE_DB_VALIDATE_AGE: "false"
         with:
           image: ${{ needs.merge.outputs.image_ref }}
           severity-cutoff: high
           output-format: sarif
           cache-db: false
-          # Do not fail here; let the table step below be the gate.
           fail-build: false
-
-      # Print a human-readable table of vulnerabilities to the job log so findings
-      # are visible without opening Code Scanning. Also fails the job when high or
-      # critical vulnerabilities are found, surfacing them for remediation.
-      # anchore/scan-action installs the grype binary and adds it to PATH, so we
-      # can invoke it directly here without a separate installation step.
-      - name: Print vulnerability table and fail on high
-        env:
-          # Same workaround as the SARIF step: skip DB age validation so a
-          # stale cached DB on an ephemeral runner doesn't hide the real results.
-          GRYPE_DB_VALIDATE_AGE: "false"
-        run: |
-          # --fail-on high exits non-zero when any finding is high or critical,
-          # making the job fail so vulnerabilities cannot be silently ignored.
-          grype "${{ needs.merge.outputs.image_ref }}" \
-            --fail-on high \
-            -o table
 
       - name: Validate generated SARIF
         id: validate_sarif
