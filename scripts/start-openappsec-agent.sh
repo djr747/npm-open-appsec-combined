@@ -85,12 +85,14 @@ configure_crowdsec_http_top() {
 # To enable per-proxy-host protection, add the contents of
 # examples/crowdsec-snippets/proxy-host-advanced.conf to each NPM proxy host's
 # "Advanced" configuration textarea in the NPM UI.
+# To exclude a host from CrowdSec, simply do not add the snippet to that host.
 
-# Map used to skip CrowdSec checks for specific virtual-host names.
-# Value 1 = skip check; default 0 = check all hosts.
+# Map documenting which hosts are intentionally excluded from CrowdSec protection.
+# Value 1 = excluded; default 0 = protected (add auth_request snippet in NPM).
+# This map is not referenced by any active nginx directive — its purpose is documentation.
 map \$host \$crowdsec_skip {
     default 0;
-$(echo -e "${map_entries}")    # Add more exclusions here:
+$(echo -e "${map_entries}")    # Add exclusions here to document intentionally unprotected hosts:
     # "internal.example.com"    1;
 }
 

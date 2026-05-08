@@ -166,17 +166,13 @@ start (the file is **never overwritten** once it exists).
 
 ### Excluding specific hosts from CrowdSec checks
 
-**Manual method** — edit the `map` block in `./data/nginx/custom/http_top.conf`:
+Because `auth_request` is added per-proxy-host via NPM's "Advanced" config, **the simplest
+way to exclude a host is to not add the snippet to that host**. Any proxy host that does not
+have the `proxy-host-advanced.conf` content in its Advanced config is not checked by CrowdSec.
 
-```nginx
-map $host $crowdsec_skip {
-    default 0;
-    "internal.example.com"    1;   # bypasses CrowdSec for this host
-    "webhook.example.com"     1;
-}
-```
-
-**Env-var method** — set `CROWDSEC_SKIP_HOSTS` in the container environment:
+The `CROWDSEC_SKIP_HOSTS` env var and the `map $host $crowdsec_skip` block in `http_top.conf`
+serve as **documentation** — they record which hosts are intentionally unprotected. Set the env
+var when you want that inventory maintained automatically:
 
 ```yaml
 environment:
@@ -184,8 +180,8 @@ environment:
   - CROWDSEC_SKIP_HOSTS=internal.example.com,webhook.example.com
 ```
 
-The startup script populates the `map` block from this list when it generates `http_top.conf` on
-first start. After initial generation, edit the file directly to add or remove exclusions.
+On first container start the startup script generates `http_top.conf` with those hosts listed
+in the map block. After initial generation, edit the file directly to update the list.
 
 ### CrowdSec AppSec (optional WAF rules)
 
