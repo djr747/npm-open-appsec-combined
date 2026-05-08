@@ -121,92 +121,91 @@ crowd-sourced threat intelligence and IP-level banning.
 ### Architecture (no Lua module required)
 
 The `jc21/nginx-proxy-manager` base image does not include a Lua/OpenResty nginx build, so the
-official `crowdsec-nginx-bouncer` (Lua-based) cannot be used. Instead:
+official `crowdsec-nginx-bouncer` (Lua-based) cannot be used. This repo instead generates nginx
+`auth_request` config automatically from container environment variables:
 
-1. **CrowdSec agent** — runs as a sidecar container, parses NPM nginx access logs (and
-   optionally open-appsec logs), and maintains a local IP ban database.
-2. **`fbonalair/traefik-crowdsec-bouncer`** — a lightweight Go HTTP service that exposes
-   `GET /api/v1/forwardAuth`, returning `200` (allow) or `403` (ban) based on the client IP.
-3. **nginx `auth_request`** — nginx's built-in module sends a subrequest to the bouncer for
-   every inbound request. No Lua needed.
+1. **CrowdSec agent** — parses NPM nginx access logs and maintains CrowdSec decisions.
+2. **`fbonalair/traefik-crowdsec-bouncer`** — exposes `GET /api/v1/forwardAuth`, returning `200`
+   (allow) or `403` (ban) based on the client IP.
+3. **Auto-generated nginx includes** — the startup script writes `http_top.conf`,
+   `server_proxy.conf`, and `server_redirect.conf` under `/data/nginx/custom/` on first start, so
+   all proxy hosts are protected automatically with no file copies and no NPM UI edits.
 
 ### Quick start
 
 ```bash
-# 1. Create the custom nginx config directory if needed
-mkdir -p ./data/nginx/custom
-
-# 2. Drop the http-level bouncer snippet in place
-cp examples/crowdsec-snippets/http_top.conf ./data/nginx/custom/http_top.conf
-
-# 3. Create acquis.d directory and drop the log acquisition config in place
-mkdir -p ./crowdsec/conf/acquis.d
-cp examples/crowdsec-snippets/acquis.yaml ./crowdsec/conf/acquis.d/npm-open-appsec.yaml
-
-# 4. Start the three-service stack
+# Start the self-contained CrowdSec stack
 docker compose -f examples/docker-compose.crowdsec.yml up -d
-
-# 5. Create a bouncer API key
-docker exec crowdsec cscli bouncers add npm-bouncer
-# Copy the output key into CROWDSEC_BOUNCER_API_KEY (env file or inline)
-
-# 6. Restart the bouncer so it picks up the key
-docker compose -f examples/docker-compose.crowdsec.yml restart crowdsec-bouncer
-
-# 7. For each NPM proxy host to protect, paste the contents of
-#    examples/crowdsec-snippets/proxy-host-advanced.conf into the host's
-#    "Advanced" configuration textarea in the NPM UI.
 ```
 
-### Auto-generation of http_top.conf
+That compose file is fully declarative:
 
-Set `CROWDSEC_BOUNCER_URL=crowdsec-bouncer:8080` in the `npm-open-appsec` container environment.
-The startup script generates `./data/nginx/custom/http_top.conf` automatically on first container
-start (the file is **never overwritten** once it exists).
+- CrowdSec auto-registers the bouncer from `BOUNCER_KEY_NPM_OPEN_APPSEC`
+- CrowdSec writes its nginx log acquisition + AppSec listener config inline at container startup
+- `npm-open-appsec` auto-generates the nginx custom includes on first start
+- all proxy hosts are protected automatically through NPM's global `server_proxy.conf` and
+  `server_redirect.conf` custom include hooks
+
+### Generated nginx config
+
+When `CROWDSEC_ENABLED=true`, the startup script generates these files if they do not already
+exist:
+
+- `/data/nginx/custom/http_top.conf`
+- `/data/nginx/custom/server_proxy.conf`
+- `/data/nginx/custom/server_redirect.conf`
+
+Existing files are never overwritten, so you can switch to fully manual control at any time by
+editing the generated files in place.
 
 ### Excluding specific hosts from CrowdSec checks
 
-Because `auth_request` is added per-proxy-host via NPM's "Advanced" config, **the simplest
-way to exclude a host is to not add the snippet to that host**. Any proxy host that does not
-have the `proxy-host-advanced.conf` content in its Advanced config is not checked by CrowdSec.
-
-The `CROWDSEC_SKIP_HOSTS` env var and the `map $host $crowdsec_skip` block in `http_top.conf`
-serve as **documentation** — they record which hosts are intentionally unprotected. Set the env
-var when you want that inventory maintained automatically:
+Use the `CROWDSEC_SKIP_HOSTS` env var for the declarative path:
 
 ```yaml
 environment:
-  - CROWDSEC_BOUNCER_URL=crowdsec-bouncer:8080
+  - CROWDSEC_ENABLED=true
   - CROWDSEC_SKIP_HOSTS=internal.example.com,webhook.example.com
 ```
 
-On first container start the startup script generates `http_top.conf` with those hosts listed
-in the map block. After initial generation, edit the file directly to update the list.
+On first container start the startup script writes those hosts into the generated
+`/data/nginx/custom/http_top.conf` map and the generated auth subrequest returns immediately for
+matching hosts.
+
+For the manual path, edit the generated map block directly:
+
+```nginx
+map $host $crowdsec_skip {
+    default 0;
+    "internal.example.com"    1;
+    "webhook.example.com"     1;
+}
+```
 
 ### CrowdSec AppSec (optional WAF rules)
 
-CrowdSec includes a WAF component (AppSec) that inspects request headers against virtual-patch
-rules. To enable it:
+The compose examples already enable the required CrowdSec AppSec collections and listener on port
+`7422`.
 
-```bash
-docker exec crowdsec cscli collections install \
-  crowdsecurity/appsec-virtual-patching \
-  crowdsecurity/appsec-generic-rules
+To switch nginx from the IP-decision bouncer flow to CrowdSec AppSec header inspection, set:
+
+```yaml
+environment:
+  - CROWDSEC_AUTH_MODE=appsec
 ```
 
-Then uncomment the AppSec sections in `http_top.conf`, `proxy-host-advanced.conf`, and
-`acquis.yaml`. The `auth_request` subrequest forwards request headers (not the body) to the
-AppSec endpoint on port `7422`. Header-based attacks (URL injection, header manipulation) are
-detected; POST-body inspection requires a Lua-capable nginx build.
+The generated `server_proxy.conf` / `server_redirect.conf` then send auth subrequests to
+`crowdsec:7422` instead of `crowdsec-bouncer:8080`.
+
+Because nginx `auth_request` does not forward the request body, this mode provides header/URL
+inspection only. Full request-body inspection would require a Lua-capable nginx build.
 
 ### open-appsec log ingestion into CrowdSec
 
-CrowdSec can parse open-appsec intrusion event logs to issue additional IP bans in response to
-events detected by open-appsec. Uncomment the `openappsec` section in `acquis.yaml` and the
-corresponding log volume mount in `docker-compose.crowdsec.yml`.
-
-If using the open-appsec cloud backend, ensure the default log trigger in the cloud dashboard is
-set to **"Log to gateway/agent"**; otherwise intrusion events are not written to local log files.
+This streamlined setup focuses on NPM access-log parsing plus optional CrowdSec AppSec request
+inspection. If you later want CrowdSec to ingest open-appsec intrusion logs as well, add another
+acquisition entry under `/etc/crowdsec/acquis.d/` and mount `/var/log/nano_agent` into the
+CrowdSec container read-only.
 
 ## Automated image workflow
 
@@ -247,12 +246,14 @@ Three compose files are provided under `examples/`:
 
 ### Cloud-managed (`examples/docker-compose.cloud-managed.yml`)
 
-Connects to the open-appsec SaaS portal for policy management.
+Connects to the open-appsec SaaS portal for policy management and also includes the complete
+CrowdSec sidecar configuration (agent + bouncer) so the example is deployable as-is.
 
 Set at least:
 
 - `APPSEC_AGENT_TOKEN`
 - `APPSEC_USER_EMAIL`
+- `CROWDSEC_BOUNCER_API_KEY` (set this to a long random string if you keep CrowdSec enabled)
 
 Optional and recommended:
 
@@ -273,7 +274,9 @@ curl -fsSL https://raw.githubusercontent.com/openappsec/open-appsec-npm/main/dep
 
 ### CrowdSec + open-appsec (`examples/docker-compose.crowdsec.yml`)
 
-Adds CrowdSec IP-reputation blocking alongside open-appsec. See the [CrowdSec integration](#crowdsec-integration) section above for the full setup guide.
+Standalone compose-only CrowdSec example showing the same self-bootstrapping CrowdSec integration
+pattern without any file copies or NPM UI edits. See the [CrowdSec integration](#crowdsec-integration)
+section above for the full setup guide.
 
 ### Mount layout (both modes)
 
