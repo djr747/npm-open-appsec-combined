@@ -89,11 +89,16 @@ Before starting it, set at least:
 - `APPSEC_AGENT_TOKEN`
 - `APPSEC_USER_EMAIL`
 
-The example also externalizes:
+The example keeps the upstream NPM-style mounts:
 
 - NPM state in `./data`
 - Let's Encrypt state in `./letsencrypt`
-- shared open-appsec local policy/config exchange in `./appsec-localconfig`
-- open-appsec config in `./appsec-config`
-- open-appsec data / advanced model storage in `./appsec-data`
-- open-appsec logs in `./appsec-logs`
+
+To keep the layout cleaner, the open-appsec agent state is grouped under `./data/openappsec/`:
+
+- shared local policy/config exchange in `./data/openappsec/localconfig`
+- open-appsec config in `./data/openappsec/conf`
+- open-appsec data / advanced model storage in `./data/openappsec/data`
+- open-appsec logs in `./data/openappsec/logs`
+
+This keeps the normal NPM mounts familiar while colocating open-appsec state beneath the main data directory in a way that is closer to NPMplus-style organization.

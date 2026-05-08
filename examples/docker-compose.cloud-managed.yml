@@ -11,7 +11,7 @@ services:
     volumes:
       - ./data:/data
       - ./letsencrypt:/etc/letsencrypt
-      - ./appsec-localconfig:/ext/appsec
+      - ./data/openappsec/localconfig:/ext/appsec
 
   appsec-agent:
     image: ghcr.io/openappsec/agent:latest
@@ -28,8 +28,8 @@ services:
       - https_proxy=${APPSEC_HTTPS_PROXY:-}
       - autoPolicyLoad=${APPSEC_AUTO_POLICY_LOAD:-false}
     volumes:
-      - ./appsec-config:/etc/cp/conf
-      - ./appsec-data:/etc/cp/data
-      - ./appsec-logs:/var/log/nano_agent
-      - ./appsec-localconfig:/ext/appsec
+      - ./data/openappsec/conf:/etc/cp/conf
+      - ./data/openappsec/data:/etc/cp/data
+      - ./data/openappsec/logs:/var/log/nano_agent
+      - ./data/openappsec/localconfig:/ext/appsec
     command: /cp-nano-agent
