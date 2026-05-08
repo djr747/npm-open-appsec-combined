@@ -19,10 +19,6 @@ services:
       - autoPolicyLoad=${APPSEC_AUTO_POLICY_LOAD:-true}
       # CrowdSec — fully declarative, no file copies and no NPM UI edits required.
       - CROWDSEC_ENABLED=${CROWDSEC_ENABLED:-true}
-      # bouncer (default) = CrowdSec IP reputation / ban decisions
-      # appsec            = CrowdSec AppSec header inspection on port 7422
-      - CROWDSEC_AUTH_MODE=${CROWDSEC_AUTH_MODE:-bouncer}
-      - CROWDSEC_BOUNCER_URL=crowdsec-bouncer:8080
       - CROWDSEC_APPSEC_URL=crowdsec:7422
       # Optional: comma-separated hostnames to exclude from CrowdSec checks.
       # On first start the startup script writes these into /data/nginx/custom/http_top.conf.
@@ -46,7 +42,6 @@ services:
       # - ./appsec/open-appsec-advanced-model.tgz:/advanced-model/open-appsec-advanced-model.tgz
     depends_on:
       - crowdsec
-      - crowdsec-bouncer
 
   crowdsec:
     image: docker.io/crowdsecurity/crowdsec:latest
@@ -73,24 +68,11 @@ services:
     environment:
       - TZ=${TZ:-UTC}
       - USE_WAL=true
-      - COLLECTIONS=crowdsecurity/nginx crowdsecurity/linux crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules
-      - BOUNCER_KEY_NPM_OPEN_APPSEC=${CROWDSEC_BOUNCER_API_KEY:-change-this-long-random-value}
+      - COLLECTIONS=crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules
     volumes:
       - crowdsec_config:/etc/crowdsec
       - crowdsec_data:/var/lib/crowdsec/data
       - ./data/logs:/var/log/npm:ro
-
-  crowdsec-bouncer:
-    image: docker.io/fbonalair/traefik-crowdsec-bouncer:latest
-    container_name: crowdsec-bouncer
-    restart: unless-stopped
-    environment:
-      - TZ=${TZ:-UTC}
-      - CROWDSEC_BOUNCER_API_KEY=${CROWDSEC_BOUNCER_API_KEY:-change-this-long-random-value}
-      - CROWDSEC_AGENT_HOST=crowdsec:8080
-      - GIN_MODE=release
-    depends_on:
-      - crowdsec
 
 volumes:
   crowdsec_config:

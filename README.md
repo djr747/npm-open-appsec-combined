@@ -114,20 +114,21 @@ optional advanced configuration.
 
 ## CrowdSec integration
 
-CrowdSec adds community-sourced IP reputation blocking on top of the open-appsec WAF. The two
-tools are complementary: open-appsec provides ML-based request inspection; CrowdSec provides
-crowd-sourced threat intelligence and IP-level banning.
+CrowdSec adds a second, independent rule-based inspection layer on top of open-appsec. In this
+repo the streamlined integration uses CrowdSec AppSec directly over its built-in HTTP endpoint, so
+the deployment stays to a single additional CrowdSec sidecar.
 
 ### Architecture (no Lua module required)
 
 The `jc21/nginx-proxy-manager` base image does not include a Lua/OpenResty nginx build, so the
-official `crowdsec-nginx-bouncer` (Lua-based) cannot be used. This repo instead generates nginx
-`auth_request` config automatically from container environment variables:
+official `crowdsec-nginx-bouncer` (Lua-based) is not a good fit. The CrowdSec Local API also does
+not return simple allow/deny status codes that nginx `auth_request` can consume directly.
 
-1. **CrowdSec agent** — parses NPM nginx access logs and maintains CrowdSec decisions.
-2. **`fbonalair/traefik-crowdsec-bouncer`** — exposes `GET /api/v1/forwardAuth`, returning `200`
-   (allow) or `403` (ban) based on the client IP.
-3. **Auto-generated nginx includes** — the startup script writes `http_top.conf`,
+This repo therefore uses CrowdSec AppSec's built-in HTTP inspection endpoint on port `7422` and
+generates nginx `auth_request` config automatically from container environment variables:
+
+1. **CrowdSec agent** — runs AppSec and exposes its inspection endpoint on `7422`.
+2. **Auto-generated nginx includes** — the startup script writes `http_top.conf`,
    `server_proxy.conf`, and `server_redirect.conf` under `/data/nginx/custom/` on first start, so
    all proxy hosts are protected automatically with no file copies and no NPM UI edits.
 
@@ -140,7 +141,6 @@ docker compose -f examples/docker-compose.crowdsec.yml up -d
 
 That compose file is fully declarative:
 
-- CrowdSec auto-registers the bouncer from `BOUNCER_KEY_NPM_OPEN_APPSEC`
 - CrowdSec writes its nginx log acquisition + AppSec listener config inline at container startup
 - `npm-open-appsec` auto-generates the nginx custom includes on first start
 - all proxy hosts are protected automatically through NPM's global `server_proxy.conf` and
@@ -185,20 +185,18 @@ map $host $crowdsec_skip {
 ### CrowdSec AppSec (optional WAF rules)
 
 The compose examples already enable the required CrowdSec AppSec collections and listener on port
-`7422`.
-
-To switch nginx from the IP-decision bouncer flow to CrowdSec AppSec header inspection, set:
-
-```yaml
-environment:
-  - CROWDSEC_AUTH_MODE=appsec
-```
-
-The generated `server_proxy.conf` / `server_redirect.conf` then send auth subrequests to
-`crowdsec:7422` instead of `crowdsec-bouncer:8080`.
+`7422`, and the generated nginx config sends auth subrequests there directly.
 
 Because nginx `auth_request` does not forward the request body, this mode provides header/URL
 inspection only. Full request-body inspection would require a Lua-capable nginx build.
+
+### Tradeoff of the no-bouncer design
+
+Removing the extra bouncer sidecar keeps the deployment much simpler, but it also means this
+integration is focused on CrowdSec AppSec request inspection rather than inline enforcement of
+CrowdSec Local API IP-ban decisions. nginx can call the AppSec endpoint directly because it returns
+allow/deny HTTP statuses; the Local API decision endpoints return JSON data, not auth_request-style
+status codes.
 
 ### open-appsec log ingestion into CrowdSec
 
@@ -247,13 +245,12 @@ Three compose files are provided under `examples/`:
 ### Cloud-managed (`examples/docker-compose.cloud-managed.yml`)
 
 Connects to the open-appsec SaaS portal for policy management and also includes the complete
-CrowdSec sidecar configuration (agent + bouncer) so the example is deployable as-is.
+single-sidecar CrowdSec AppSec configuration so the example is deployable as-is.
 
 Set at least:
 
 - `APPSEC_AGENT_TOKEN`
 - `APPSEC_USER_EMAIL`
-- `CROWDSEC_BOUNCER_API_KEY` (set this to a long random string if you keep CrowdSec enabled)
 
 Optional and recommended:
 
