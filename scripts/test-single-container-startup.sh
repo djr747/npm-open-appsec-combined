@@ -33,6 +33,7 @@ if [ "${SKIP_BUILD}" != "1" ]; then
     docker build -t "${IMAGE_NAME}" "${REPO_ROOT}"
 fi
 
+# Non-functional token is intentional here; this test validates startup wiring only.
 docker run -d --name "${CONTAINER_NAME}" \
     -e PUID=1000 \
     -e PGID=1000 \

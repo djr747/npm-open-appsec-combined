@@ -1,7 +1,7 @@
 services:
   npm-open-appsec:
     # Set IMAGE_REPOSITORY (via .env or export) to your GHCR owner/repo path.
-    image: ghcr.io/${IMAGE_REPOSITORY:-your-org-or-user/npm-open-appsec-combined}:${NPM_IMAGE_TAG:-latest}
+    image: ghcr.io/${IMAGE_REPOSITORY:-djr747/npm-open-appsec-combined}:${NPM_IMAGE_TAG:-latest}
     container_name: npm-open-appsec
     restart: unless-stopped
     environment:

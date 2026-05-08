@@ -58,7 +58,7 @@ COPY --from=appsec-installers /nano-service-installers /nano-service-installers
 COPY scripts/start-openappsec-agent.sh /usr/local/bin/start-openappsec-agent
 
 RUN grep -q '^include /etc/nginx/modules/\*\.conf;$' /etc/nginx/nginx.conf \
-    || (echo "Expected /etc/nginx/modules include directive missing from nginx.conf" >&2; exit 1)
+    || (echo "Expected '/etc/nginx/modules/*.conf' include missing in nginx.conf; this directive is required to load dynamic modules like open-appsec. Ensure the base NPM image keeps the standard module include structure." >&2; exit 1)
 RUN grep -q "load_module /usr/lib/nginx/modules/libngx_module.so;" /etc/nginx/nginx.conf \
     || sed -i '/include \/etc\/nginx\/modules\/\*\.conf/a\load_module /usr/lib/nginx/modules/libngx_module.so;' /etc/nginx/nginx.conf
 RUN grep -q "load_module /usr/lib/nginx/modules/libngx_module.so;" /etc/nginx/nginx.conf

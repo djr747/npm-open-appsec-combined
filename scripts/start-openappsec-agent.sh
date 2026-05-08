@@ -53,7 +53,8 @@ fi
 start_watchdog
 
 while true; do
-    # External trigger file used by open-appsec runtime components to request watchdog restart.
+    # Trigger file used by open-appsec runtime components when watchdog-managed services are upgraded
+    # or reconfigured and require a clean watchdog restart to reload processes.
     if [ -f /tmp/restart_watchdog ]; then
         rm -f /tmp/restart_watchdog
         kill -TERM "${WATCHDOG_PID}" 2>/dev/null || true
