@@ -181,6 +181,9 @@ jobs:
 
       - name: Create and push multi-arch manifest
         run: |
+          [ -n "${DOCKER_METADATA_OUTPUT_JSON:-}" ] \
+            || { echo "::error::DOCKER_METADATA_OUTPUT_JSON is empty"; exit 1; }
+
           # Build the list of -t flags from metadata-action output (one tag per line).
           TAG_FLAGS=$(jq -r '.tags | map("-t " + .) | join(" ")' <<< "${DOCKER_METADATA_OUTPUT_JSON}") \
             || { echo "::error::Failed to parse tags from metadata"; exit 1; }

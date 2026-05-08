@@ -52,8 +52,9 @@ location = /crowdsec-check {
     internal;
     auth_request off;
 
-    # Host exclusions are driven from the map in http_top.conf. This nginx "if"
-    # only performs an immediate return, which is one of the safe nginx if usages.
+    # Host exclusions are driven from the \$crowdsec_skip map variable defined in
+    # http_top.conf. This nginx "if" only performs an immediate return, which is
+    # one of the safe nginx if usages.
     if (\$crowdsec_skip) {
         return 204;
     }
@@ -110,7 +111,7 @@ configure_crowdsec_nginx() {
         for host in ${skip_hosts}; do
             host="$(echo "${host}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
             if [ -n "${host}" ]; then
-                map_entries="${map_entries}    \"${host}\"    1; # CROWDSEC_SKIP_HOSTS"$'\n'
+                printf -v map_entries '%s    "%s"    1; # CROWDSEC_SKIP_HOSTS\n' "${map_entries}" "${host}"
             fi
         done
     fi
