@@ -42,7 +42,11 @@ RUN mkdir -p /usr/lib/nginx/modules /ext/appsec /etc/cp/conf /etc/cp/data /var/l
     && sed -i '/"\/etc\/nginx\/conf.d"/a\ \t"\/ext\/appsec"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
     && sed -i '/"\/ext\/appsec"/a\ \t"\/etc\/cp\/conf"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
     && sed -i '/"\/etc\/cp\/conf"/a\ \t"\/etc\/cp\/data"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
-    && sed -i '/"\/etc\/cp\/data"/a\ \t"\/var\/log\/nano_agent"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh
+    && sed -i '/"\/etc\/cp\/data"/a\ \t"\/var\/log\/nano_agent"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
+    && grep -q '"\/ext\/appsec"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
+    && grep -q '"\/etc\/cp\/conf"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
+    && grep -q '"\/etc\/cp\/data"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
+    && grep -q '"\/var\/log\/nano_agent"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh
 
 COPY --from=attachment-builder /tmp/build_out/lib/libngx_module.so /usr/lib/nginx/modules/libngx_module.so
 COPY --from=attachment-builder /tmp/build_out/lib/libosrc_nginx_attachment_util.so /usr/lib/libosrc_nginx_attachment_util.so

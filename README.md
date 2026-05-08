@@ -80,6 +80,22 @@ Workflow: `.github/workflows/build-image.yml`
   - `<npm-release-tag>-oas-<attachment-commit-short-sha>`
   - `nightly`
 
+## Integration test
+
+Workflow: `.github/workflows/integration-test.yml`
+
+Local run:
+
+```bash
+./scripts/test-single-container-startup.sh
+```
+
+The integration test builds the image, starts one container, and verifies:
+
+- open-appsec watchdog process is running
+- nginx process is running
+- NPM backend process is running
+
 ## Example deployment
 
 Example file:
