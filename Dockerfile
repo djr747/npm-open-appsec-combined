@@ -39,10 +39,11 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /usr/lib/nginx/modules /ext/appsec /etc/cp/conf /etc/cp/data /var/log/nano_agent /dev/shm/check-point \
-    && sed -i '/"\/etc\/nginx\/conf.d"/a\ \t"\/ext\/appsec"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
-    && sed -i '/"\/ext\/appsec"/a\ \t"\/etc\/cp\/conf"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
-    && sed -i '/"\/etc\/cp\/conf"/a\ \t"\/etc\/cp\/data"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
-    && sed -i '/"\/etc\/cp\/data"/a\ \t"\/var\/log\/nano_agent"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
+    && grep -q '"\/etc\/nginx\/conf.d"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
+    && sed -i '/"\/etc\/nginx\/conf.d"/a\ \t"\/ext\/appsec"\
+\t"\/etc\/cp\/conf"\
+\t"\/etc\/cp\/data"\
+\t"\/var\/log\/nano_agent"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
     && grep -q '"\/ext\/appsec"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
     && grep -q '"\/etc\/cp\/conf"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
     && grep -q '"\/etc\/cp\/data"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh \
