@@ -36,7 +36,8 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get -y upgrade -o Dpkg::Options::="--force-confold" \
     && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /usr/lib/nginx/modules /ext/appsec
+RUN mkdir -p /usr/lib/nginx/modules /ext/appsec \
+    && sed -i '/"\/etc\/nginx\/conf.d"/a\ \t"/ext/appsec"' /etc/s6-overlay/s6-rc.d/prepare/30-ownership.sh
 
 COPY --from=attachment-builder /tmp/build_out/lib/libngx_module.so /usr/lib/nginx/modules/libngx_module.so
 COPY --from=attachment-builder /tmp/build_out/lib/libosrc_nginx_attachment_util.so /usr/lib/libosrc_nginx_attachment_util.so
@@ -45,7 +46,9 @@ COPY --from=attachment-builder /tmp/build_out/lib/libosrc_shmem_ipc.so /usr/lib/
 COPY --from=attachment-builder /tmp/attachment-commit /etc/openappsec-attachment.commit
 
 RUN grep -q '^include /etc/nginx/modules/\*\.conf;$' /etc/nginx/nginx.conf \
-    && (grep -q "load_module /usr/lib/nginx/modules/libngx_module.so;" /etc/nginx/nginx.conf \
-    || sed -i '/include \/etc\/nginx\/modules\/\*\.conf/a\load_module /usr/lib/nginx/modules/libngx_module.so;' /etc/nginx/nginx.conf)
+    || (echo "Expected /etc/nginx/modules include directive missing from nginx.conf" >&2; exit 1)
+RUN grep -q "load_module /usr/lib/nginx/modules/libngx_module.so;" /etc/nginx/nginx.conf \
+    || sed -i '/include \/etc\/nginx\/modules\/\*\.conf/a\load_module /usr/lib/nginx/modules/libngx_module.so;' /etc/nginx/nginx.conf
+RUN grep -q "load_module /usr/lib/nginx/modules/libngx_module.so;" /etc/nginx/nginx.conf
 
 VOLUME ["/data", "/etc/letsencrypt", "/ext/appsec"]

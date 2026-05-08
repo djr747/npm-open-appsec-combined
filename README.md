@@ -8,11 +8,21 @@ Builds a combined NGINX Proxy Manager image with the latest open-appsec attachme
 - Attachment build from `openappsec/attachment` git ref (default: `main`)
 - Separate builder stage so gcc/cmake/build dependencies are not left in the final runtime image
 - Minimal NGINX patching to load `libngx_module.so`
+- Keeps the upstream NPM `PUID`/`PGID` process model and extends ownership handling to the added `/ext/appsec` mount
 - Shared persistence mount point in the NPM image:
   - `/ext/appsec`
 
 The agent-side state for cloud-managed or standalone open-appsec runs is persisted by the separate `ghcr.io/openappsec/agent` container, not by the NPM container itself.
 The recommended deployment does **not** require `ipc: host`; it uses a private shared IPC namespace between the NPM container and the agent container instead.
+
+## PUID / PGID support
+
+The combined image keeps the upstream NPM startup model for running application processes with `PUID` / `PGID`.
+
+- Set `PUID` and `PGID` on the NPM container to match the owner of your bind-mounted files
+- The added `/ext/appsec` path is included in the ownership preparation so the shared open-appsec path follows the same uid/gid handling as the rest of the NPM data paths
+
+The upstream base image still performs its initialization as root before dropping service processes to the configured uid/gid, so this is the same rootless-style process model that upstream NPM already uses.
 
 ## Cloud-managed open-appsec configuration
 
@@ -91,6 +101,11 @@ Before starting it, set at least:
 
 - `APPSEC_AGENT_TOKEN`
 - `APPSEC_USER_EMAIL`
+
+Optional but recommended on the NPM container:
+
+- `PUID`
+- `PGID`
 
 The example keeps the upstream NPM-style mounts:
 
