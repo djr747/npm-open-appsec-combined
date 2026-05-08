@@ -18,7 +18,10 @@ on:
 permissions:
   contents: read
   packages: write
-  security-events: write  # required to upload Snyk SARIF to GitHub Code Scanning
+  security-events: write  # required to upload Grype SARIF to GitHub Code Scanning
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   resolve:
@@ -100,7 +103,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=pr
+            type=ref,event=pr
             type=raw,value=${{ needs.resolve.outputs.npm_tag }},enable=${{ github.event_name != 'pull_request' }}
             type=raw,value=${{ needs.resolve.outputs.npm_tag }}-oas-${{ needs.resolve.outputs.attachment_short_sha }},enable=${{ github.event_name != 'pull_request' }}
             type=raw,value=nightly,enable=${{ github.event_name == 'schedule' }}
