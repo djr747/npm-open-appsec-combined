@@ -79,14 +79,138 @@ The image keeps upstream NPM startup behavior:
 
 The open-appsec paths added by this image are included in the ownership preparation so bind-mounted directories follow the same uid/gid model as other NPM data paths.
 
-## CrowdSec compatibility
+## Advanced ML model (optional)
 
-This image is intended to stay compatible with existing CrowdSec-based NPM setups:
+The startup script automatically handles the advanced ML model if the file is present at the
+expected container path.
 
-- still based on upstream `jc21/nginx-proxy-manager`
-- only adds open-appsec module/runtime integration on top
-- keeps NPM `/data/nginx/...` include structure intact
-- does not remove/override existing CrowdSec custom snippets or mounted NPM data
+Download the `open-appsec-advanced-model.tgz` from the
+[open-appsec releases](https://github.com/openappsec/openappsec/releases) and place it at the
+host-side path, then mount it into the container:
+
+```yaml
+volumes:
+  # ... other mounts ...
+  - ./appsec/open-appsec-advanced-model.tgz:/advanced-model/open-appsec-advanced-model.tgz
+```
+
+The script extracts the archive into `/etc/cp/conf/waap` on each container start if the file is
+present. Both compose examples have this mount commented out — uncomment to activate.
+
+## Local ML tuning stack (advanced, optional)
+
+The NPMplus compose includes extra containers for an unsupervised ML suggestion loop
+(`smartsync`, `shared-storage`, `tuning-svc`, `openappsec-db`). These are **not needed** for
+this setup:
+
+- **With `AGENT_TOKEN` set**: the open-appsec SaaS cloud backend handles all learning and
+  tuning — no extra containers needed.
+- **Without `AGENT_TOKEN` (local-policy mode)**: a static `local_policy.yaml` with
+  `autoPolicyLoad=true` gives full WAF enforcement — no extra containers needed.
+
+The smartsync/tuning stack is only relevant if you want unsupervised ML-based policy suggestions
+running entirely on-premises without a cloud backend. See the NPMplus documentation for that
+optional advanced configuration.
+
+## CrowdSec integration
+
+CrowdSec adds community-sourced IP reputation blocking on top of the open-appsec WAF. The two
+tools are complementary: open-appsec provides ML-based request inspection; CrowdSec provides
+crowd-sourced threat intelligence and IP-level banning.
+
+### Architecture (no Lua module required)
+
+The `jc21/nginx-proxy-manager` base image does not include a Lua/OpenResty nginx build, so the
+official `crowdsec-nginx-bouncer` (Lua-based) cannot be used. Instead:
+
+1. **CrowdSec agent** — runs as a sidecar container, parses NPM nginx access logs (and
+   optionally open-appsec logs), and maintains a local IP ban database.
+2. **`fbonalair/traefik-crowdsec-bouncer`** — a lightweight Go HTTP service that exposes
+   `GET /api/v1/forwardAuth`, returning `200` (allow) or `403` (ban) based on the client IP.
+3. **nginx `auth_request`** — nginx's built-in module sends a subrequest to the bouncer for
+   every inbound request. No Lua needed.
+
+### Quick start
+
+```bash
+# 1. Create the custom nginx config directory if needed
+mkdir -p ./data/nginx/custom
+
+# 2. Drop the http-level bouncer snippet in place
+cp examples/crowdsec-snippets/http_top.conf ./data/nginx/custom/http_top.conf
+
+# 3. Create acquis.d directory and drop the log acquisition config in place
+mkdir -p ./crowdsec/conf/acquis.d
+cp examples/crowdsec-snippets/acquis.yaml ./crowdsec/conf/acquis.d/npm-open-appsec.yaml
+
+# 4. Start the three-service stack
+docker compose -f examples/docker-compose.crowdsec.yml up -d
+
+# 5. Create a bouncer API key
+docker exec crowdsec cscli bouncers add npm-bouncer
+# Copy the output key into CROWDSEC_BOUNCER_API_KEY (env file or inline)
+
+# 6. Restart the bouncer so it picks up the key
+docker compose -f examples/docker-compose.crowdsec.yml restart crowdsec-bouncer
+
+# 7. For each NPM proxy host to protect, paste the contents of
+#    examples/crowdsec-snippets/proxy-host-advanced.conf into the host's
+#    "Advanced" configuration textarea in the NPM UI.
+```
+
+### Auto-generation of http_top.conf
+
+Set `CROWDSEC_BOUNCER_URL=crowdsec-bouncer:8080` in the `npm-open-appsec` container environment.
+The startup script generates `./data/nginx/custom/http_top.conf` automatically on first container
+start (the file is **never overwritten** once it exists).
+
+### Excluding specific hosts from CrowdSec checks
+
+**Manual method** — edit the `map` block in `./data/nginx/custom/http_top.conf`:
+
+```nginx
+map $host $crowdsec_skip {
+    default 0;
+    "internal.example.com"    1;   # bypasses CrowdSec for this host
+    "webhook.example.com"     1;
+}
+```
+
+**Env-var method** — set `CROWDSEC_SKIP_HOSTS` in the container environment:
+
+```yaml
+environment:
+  - CROWDSEC_BOUNCER_URL=crowdsec-bouncer:8080
+  - CROWDSEC_SKIP_HOSTS=internal.example.com,webhook.example.com
+```
+
+The startup script populates the `map` block from this list when it generates `http_top.conf` on
+first start. After initial generation, edit the file directly to add or remove exclusions.
+
+### CrowdSec AppSec (optional WAF rules)
+
+CrowdSec includes a WAF component (AppSec) that inspects request headers against virtual-patch
+rules. To enable it:
+
+```bash
+docker exec crowdsec cscli collections install \
+  crowdsecurity/appsec-virtual-patching \
+  crowdsecurity/appsec-generic-rules
+```
+
+Then uncomment the AppSec sections in `http_top.conf`, `proxy-host-advanced.conf`, and
+`acquis.yaml`. The `auth_request` subrequest forwards request headers (not the body) to the
+AppSec endpoint on port `7422`. Header-based attacks (URL injection, header manipulation) are
+detected; POST-body inspection requires a Lua-capable nginx build.
+
+### open-appsec log ingestion into CrowdSec
+
+CrowdSec can parse open-appsec intrusion event logs to issue additional IP bans in response to
+events detected by open-appsec. Uncomment the `openappsec` section in `acquis.yaml` and the
+corresponding log volume mount in `docker-compose.crowdsec.yml`.
+
+If using the open-appsec cloud backend, ensure the default log trigger in the cloud dashboard is
+set to **"Log to gateway/agent"**; otherwise intrusion events are not written to local log files.
 
 ## Automated image workflow
 
@@ -100,6 +224,9 @@ Workflow: `.github/workflows/build-image.yml`
   - `<npm-release-tag>`
   - `<npm-release-tag>-oas-<attachment-commit-short-sha>`
   - `nightly`
+- Build strategy: `amd64` on `ubuntu-latest` (native), `arm64` on `ubuntu-24.04-arm` (native,
+  no QEMU). Each platform is built independently and pushed by digest; a `merge` job assembles
+  the multi-arch manifest list.
 
 ## Integration test
 
@@ -120,7 +247,7 @@ The integration test builds the image, starts one container, and verifies:
 
 ## Example deployments
 
-Two compose files are provided under `examples/`:
+Three compose files are provided under `examples/`:
 
 ### Cloud-managed (`examples/docker-compose.cloud-managed.yml`)
 
@@ -147,6 +274,10 @@ mkdir -p ./appsec/localconfig
 curl -fsSL https://raw.githubusercontent.com/openappsec/open-appsec-npm/main/deployment/local_policy.yaml \
      -o ./appsec/localconfig/local_policy.yaml
 ```
+
+### CrowdSec + open-appsec (`examples/docker-compose.crowdsec.yml`)
+
+Adds CrowdSec IP-reputation blocking alongside open-appsec. See the [CrowdSec integration](#crowdsec-integration) section above for the full setup guide.
 
 ### Mount layout (both modes)
 

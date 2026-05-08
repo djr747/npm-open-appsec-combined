@@ -1,0 +1,56 @@
+# CrowdSec log acquisition config for npm-open-appsec-combined
+# =============================================================
+# Place this file at: ./crowdsec/conf/acquis.d/npm-open-appsec.yaml
+# (create the directory first: mkdir -p ./crowdsec/conf/acquis.d)
+#
+# The CrowdSec container in docker-compose.crowdsec.yml mounts:
+#   ./data/logs  → /var/log/npm     (NPM nginx access logs, read-only)
+#   ./appsec/logs → /var/log/openappsec  (open-appsec agent logs, read-only, optional)
+#
+# NPM writes per-proxy-host access logs to /data/logs/ using names like
+# proxy-host-1_access.log. Enable access logging per proxy host via the
+# "Access Log" toggle in NPM's proxy host settings.
+
+---
+# NPM nginx access logs — parsed by CrowdSec's crowdsecurity/nginx collection.
+# CrowdSec uses these to detect scanning, brute-force, and other attack patterns
+# and to add offending IPs to the local ban list queried by the bouncer.
+filenames:
+  - /var/log/npm/proxy-host-*_access.log
+labels:
+  type: nginx
+
+---
+# CrowdSec AppSec real-time inspection listener (optional).
+# Activate this to enable virtual-patch WAF rules alongside the IP-reputation check.
+# Requires collections installed inside the crowdsec container:
+#   docker exec crowdsec cscli collections install \
+#     crowdsecurity/appsec-virtual-patching \
+#     crowdsecurity/appsec-generic-rules
+# After installing, uncomment this section and restart the crowdsec container.
+# Also uncomment the crowdsec_appsec upstream and AppSec location blocks in
+# examples/crowdsec-snippets/http_top.conf and proxy-host-advanced.conf.
+#
+# listen_addr: 0.0.0.0:7422
+# appsec_config: crowdsecurity/appsec-default
+# name: appsec
+# source: appsec
+# labels:
+#   type: appsec
+
+---
+# open-appsec intrusion event logs (optional).
+# Uncomment to let CrowdSec ingest open-appsec detections and issue IP bans in
+# response to events that open-appsec logged but did not necessarily block at the
+# time (e.g. in detect-only mode).
+# Also uncomment the open-appsec log volume mount in docker-compose.crowdsec.yml.
+#
+# If connecting to the open-appsec cloud backend, ensure the default log trigger is
+# configured to "Log to gateway/agent" in the cloud dashboard, otherwise no
+# intrusion events are written to the local log files for CrowdSec to parse.
+#
+# source: file
+# filenames:
+#   - /var/log/openappsec/cp-nano-http-transaction-handler.log*
+# labels:
+#   type: openappsec

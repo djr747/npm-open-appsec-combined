@@ -28,3 +28,8 @@ services:
       - ./appsec/conf:/etc/cp/conf
       - ./appsec/data:/etc/cp/data
       - ./appsec/logs:/var/log/nano_agent
+      # Optional: pre-trained advanced ML model for improved detection accuracy.
+      # Download open-appsec-advanced-model.tgz from the open-appsec GitHub releases
+      # and place it at the host path below before starting the container.
+      # The startup script automatically extracts it into /etc/cp/conf/waap.
+      # - ./appsec/open-appsec-advanced-model.tgz:/advanced-model/open-appsec-advanced-model.tgz

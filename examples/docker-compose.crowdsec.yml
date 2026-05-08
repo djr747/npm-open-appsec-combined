@@ -1,0 +1,130 @@
+# CrowdSec integration for npm-open-appsec-combined
+# ===================================================
+# Three-service setup:
+#   1. npm-open-appsec  — the main proxy + open-appsec WAF
+#   2. crowdsec         — the CrowdSec agent (log analysis + IP-ban decisions + AppSec WAF)
+#   3. crowdsec-bouncer — lightweight HTTP forwardAuth service queried by nginx auth_request
+#
+# WHY TWO WAFs (open-appsec + CrowdSec AppSec)?
+#   open-appsec provides the primary ML-based WAAP (Web Application & API Protection).
+#   CrowdSec adds crowd-sourced IP reputation blocking and optional virtual-patch WAF rules
+#   on top. They are complementary: open-appsec excels at behavioural/ML inspection while
+#   CrowdSec excels at community threat intelligence and IP-level blocking.
+#
+# ARCHITECTURE (no Lua module required):
+#   nginx auth_request → crowdsec-bouncer (GET /api/v1/forwardAuth) → 200/403
+#   nginx auth_request → crowdsec:7422 (AppSec WAF, optional, header-only inspection)
+#   The base jc21/nginx-proxy-manager image does not include the Lua/OpenResty module,
+#   so the official Lua-based crowdsec-nginx-bouncer cannot be used. The HTTP forwardAuth
+#   approach works with nginx's built-in auth_request module (no Lua needed).
+#
+# SETUP STEPS:
+#   1. Copy examples/crowdsec-snippets/http_top.conf to ./data/nginx/custom/http_top.conf
+#      (create the directory first: mkdir -p ./data/nginx/custom)
+#   2. Start the stack: docker compose -f docker-compose.crowdsec.yml up -d
+#   3. Register the bouncer and get an API key:
+#        docker exec crowdsec cscli bouncers add npm-bouncer
+#      Copy the key and set CROWDSEC_BOUNCER_API_KEY in a .env file or inline below.
+#   4. Restart the bouncer so it picks up the API key:
+#        docker compose -f docker-compose.crowdsec.yml restart crowdsec-bouncer
+#   5. For each NPM proxy host you want to protect, add the contents of
+#      examples/crowdsec-snippets/proxy-host-advanced.conf to the host's "Advanced" config
+#      in the NPM UI.
+#
+# CROWDSEC APPSEC (optional WAF rules on top of IP reputation):
+#   After step 2, install the AppSec collections inside the crowdsec container:
+#     docker exec crowdsec cscli collections install \
+#       crowdsecurity/appsec-virtual-patching \
+#       crowdsecurity/appsec-generic-rules
+#   Then uncomment the AppSec sections in this file and in http_top.conf and reload.
+#
+# EXCLUDING HOSTS FROM CROWDSEC (env-var method):
+#   Set CROWDSEC_SKIP_HOSTS=host1.example.com,host2.example.com in the npm-open-appsec
+#   service. The start-openappsec-agent startup script will generate ./data/nginx/custom/
+#   http_top.conf with those hosts pre-populated in the skip map (only when the file does
+#   not already exist). To add exclusions to an existing http_top.conf, edit the map block
+#   manually (see comments in crowdsec-snippets/http_top.conf).
+
+services:
+  npm-open-appsec:
+    image: ghcr.io/${IMAGE_REPOSITORY:-djr747/npm-open-appsec-combined}:${NPM_IMAGE_TAG:-latest}
+    container_name: npm-open-appsec
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      # open-appsec settings
+      - AGENT_TOKEN=${APPSEC_AGENT_TOKEN:-}
+      - user_email=${APPSEC_USER_EMAIL:-}
+      - registered_server=NGINX
+      - nginxproxymanager=true
+      - autoPolicyLoad=${APPSEC_AUTO_POLICY_LOAD:-true}
+      # CrowdSec: set CROWDSEC_BOUNCER_URL to enable auto-generation of
+      # ./data/nginx/custom/http_top.conf on first startup. Leave empty if you
+      # prefer to place the file manually from crowdsec-snippets/http_top.conf.
+      - CROWDSEC_BOUNCER_URL=${CROWDSEC_BOUNCER_URL:-crowdsec-bouncer:8080}
+      # Optional: comma-separated hostnames to skip CrowdSec checks for.
+      # Only applied when CROWDSEC_BOUNCER_URL is set and http_top.conf does not
+      # already exist. To modify exclusions later, edit the map block in
+      # ./data/nginx/custom/http_top.conf directly.
+      - CROWDSEC_SKIP_HOSTS=${CROWDSEC_SKIP_HOSTS:-}
+    ports:
+      - "80:80"
+      - "81:81"
+      - "443:443"
+    volumes:
+      - ./data:/data
+      - ./letsencrypt:/etc/letsencrypt
+      - ./appsec/localconfig:/ext/appsec
+      - ./appsec/conf:/etc/cp/conf
+      - ./appsec/data:/etc/cp/data
+      - ./appsec/logs:/var/log/nano_agent
+      # Optional: pre-trained advanced ML model for improved detection accuracy.
+      # - ./appsec/open-appsec-advanced-model.tgz:/advanced-model/open-appsec-advanced-model.tgz
+    depends_on:
+      - crowdsec
+      - crowdsec-bouncer
+
+  crowdsec:
+    image: docker.io/crowdsecurity/crowdsec:latest
+    container_name: crowdsec
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-UTC}
+      # Collections to install on first start.
+      # crowdsecurity/nginx: parses NPM nginx access logs.
+      # crowdsecurity/linux: OS-level log parsing.
+      # Uncomment appsec lines after installing the AppSec collections (see SETUP STEPS).
+      - COLLECTIONS=crowdsecurity/nginx crowdsecurity/linux
+      # Enable WAL mode for SQLite to reduce lock contention.
+      - USE_WAL=true
+    volumes:
+      - ./crowdsec/conf:/etc/crowdsec
+      - ./crowdsec/data:/var/lib/crowdsec/data
+      # NPM nginx access logs (read-only). NPM writes per-proxy-host access logs to
+      # /data/logs/ (e.g. proxy-host-1_access.log). CrowdSec parses them to detect
+      # attacks and ban offending IPs.
+      - ./data/logs:/var/log/npm:ro
+      # open-appsec agent logs (read-only, optional). Uncomment to let CrowdSec
+      # ingest open-appsec intrusion events and trigger IP-level bans in response.
+      # - ./appsec/logs:/var/log/openappsec:ro
+    # Place the acquis.yaml from crowdsec-snippets/ into ./crowdsec/conf/acquis.d/
+    # before starting. See examples/crowdsec-snippets/acquis.yaml.
+
+  crowdsec-bouncer:
+    # fbonalair/traefik-crowdsec-bouncer exposes a plain HTTP forwardAuth endpoint
+    # (GET /api/v1/forwardAuth → 200 allow / 403 ban) that nginx queries via
+    # auth_request. Despite the "traefik" name it works with any reverse proxy that
+    # supports auth_request or similar HTTP auth delegation.
+    image: docker.io/fbonalair/traefik-crowdsec-bouncer:latest
+    container_name: crowdsec-bouncer
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-UTC}
+      # Set via: docker exec crowdsec cscli bouncers add npm-bouncer
+      - CROWDSEC_BOUNCER_API_KEY=${CROWDSEC_BOUNCER_API_KEY:?Set CROWDSEC_BOUNCER_API_KEY}
+      # Must match the container name of the crowdsec service above.
+      - CROWDSEC_AGENT_HOST=crowdsec:8080
+      - GIN_MODE=release
+    depends_on:
+      - crowdsec

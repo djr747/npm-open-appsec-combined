@@ -15,6 +15,11 @@ services:
       # autoPolicyLoad=true causes the agent to reload policy from /ext/appsec whenever
       # local_policy.yaml changes, without requiring a restart.
       - autoPolicyLoad=true
+      # NOTE: no extra sidecar containers (smartsync, shared-storage, tuning-svc, db) are
+      # needed for this setup. Those are only required for the unsupervised local-policy ML
+      # suggestion loop (adaptive tuning without a cloud backend). A static local_policy.yaml
+      # with autoPolicyLoad gives full WAF enforcement without them. If you later want the ML
+      # tuning loop, refer to the NPMplus compose.yaml for the full optional stack.
     ports:
       - "80:80"
       - "81:81"
@@ -30,3 +35,8 @@ services:
       - ./appsec/conf:/etc/cp/conf
       - ./appsec/data:/etc/cp/data
       - ./appsec/logs:/var/log/nano_agent
+      # Optional: pre-trained advanced ML model for improved detection accuracy.
+      # Download open-appsec-advanced-model.tgz from the open-appsec GitHub releases
+      # and place it at the host path below before starting the container.
+      # The startup script automatically extracts it into /etc/cp/conf/waap.
+      # - ./appsec/open-appsec-advanced-model.tgz:/advanced-model/open-appsec-advanced-model.tgz
