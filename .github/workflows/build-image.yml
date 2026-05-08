@@ -182,7 +182,8 @@ jobs:
       - name: Create and push multi-arch manifest
         run: |
           # Build the list of -t flags from metadata-action output (one tag per line).
-          TAG_FLAGS=$(jq -r '.tags | map("-t " + .) | join(" ")' <<< "${DOCKER_METADATA_OUTPUT_JSON}")
+          TAG_FLAGS=$(jq -r '.tags | map("-t " + .) | join(" ")' <<< "${DOCKER_METADATA_OUTPUT_JSON}") \
+            || { echo "::error::Failed to parse tags from metadata"; exit 1; }
 
           # imagetools create assembles a manifest list from the two per-platform digests
           # and pushes it under all requested tags in a single atomic operation.

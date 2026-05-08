@@ -110,7 +110,7 @@ configure_crowdsec_nginx() {
         for host in ${skip_hosts}; do
             host="$(echo "${host}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
             if [ -n "${host}" ]; then
-                map_entries="${map_entries}    \"${host}\"    1; # CROWDSEC_SKIP_HOSTS\n"
+                map_entries="${map_entries}    \"${host}\"    1; # CROWDSEC_SKIP_HOSTS"$'\n'
             fi
         done
     fi
@@ -129,7 +129,7 @@ configure_crowdsec_nginx() {
 
 map \$host \$crowdsec_skip {
     default 0;
-$(echo -e "${map_entries}")    # Add more exclusions here if needed:
+$(printf '%s' "${map_entries}")    # Add more exclusions here if needed:
     # "internal.example.com"    1;
 }
 

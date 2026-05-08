@@ -52,6 +52,8 @@ services:
       - -ec
       - |
         mkdir -p /etc/crowdsec/acquis.d
+        # CrowdSec acquis.d accepts multi-document YAML, so the `---` separator below
+        # intentionally keeps the nginx log reader and the AppSec listener in one file.
         cat >/etc/crowdsec/acquis.d/npm-open-appsec.yaml <<'EOF'
         filenames:
           - /var/log/npm/proxy-host-*_access.log
