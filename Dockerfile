@@ -48,6 +48,8 @@ FROM jc21/nginx-proxy-manager:${NPM_TAG}
 # Apply all available security patches from the Debian 12 repository.
 # `apt-get -y upgrade` upgrades every installed package to the latest version
 # provided by the upstream repos, closing any CVEs that have been fixed there.
+# `jq` is intentionally purged because it is not needed at runtime in this image
+# and removing it reduces attack surface and package CVE exposure.
 # Vulnerabilities that remain after this step have no available fix yet in
 # Debian 12 and will be resolved by the nightly rebuild once a fix is released.
 RUN DEBIAN_FRONTEND=noninteractive apt-get update \
