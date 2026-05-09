@@ -184,9 +184,8 @@ echo "=== WAF block verification (open-appsec prevent mode) ==="
 # high-confidence attacks.  autoPolicyLoad=true causes the agent to pick up
 # the change without a container restart.
 echo "Installing prevent-mode test policy..."
-cp "${REPO_ROOT}/scripts/test-appsec-policy.yaml" \
-   "${TEST_TMP_DIR}/appsec/localconfig/local_policy.yaml"
-chmod 644 "${TEST_TMP_DIR}/appsec/localconfig/local_policy.yaml"
+docker exec -i "${CONTAINER_NAME}" sh -ec 'cat > /ext/appsec/local_policy.yaml && chmod 644 /ext/appsec/local_policy.yaml' \
+    < "${REPO_ROOT}/scripts/test-appsec-policy.yaml"
 
 # Authenticate with NPM using the default first-run credentials.
 NPM_API="http://127.0.0.1:18081/api"
