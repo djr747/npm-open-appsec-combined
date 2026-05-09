@@ -45,11 +45,13 @@ mkdir -p \
     "${TEST_TMP_DIR}/appsec/data" \
     "${TEST_TMP_DIR}/appsec/logs"
 
-# Download the official open-appsec starter local policy for NPM.
-echo "Downloading local_policy.yaml..."
-curl -fsSL \
-    https://raw.githubusercontent.com/openappsec/open-appsec-npm/main/deployment/local_policy.yaml \
-    -o "${TEST_TMP_DIR}/appsec/localconfig/local_policy.yaml"
+# Stage the prevent-mode test policy before container start so the open-appsec agent
+# initialises in enforce mode from the beginning.  Using the starter policy (detect mode)
+# and then hot-swapping it mid-run via autoPolicyLoad is unreliable in CI because the
+# agent's policy-reload cycle can exceed the 90-second WAF polling window.
+echo "Staging prevent-mode test policy..."
+cp "${REPO_ROOT}/scripts/test-appsec-policy.yaml" \
+    "${TEST_TMP_DIR}/appsec/localconfig/local_policy.yaml"
 
 if [ "${SKIP_BUILD}" != "1" ]; then
     echo "Building image..."
@@ -184,12 +186,8 @@ echo "PASS: attachment commit ${ATTACH_COMMIT}"
 echo ""
 echo "=== WAF block verification (open-appsec prevent mode) ==="
 
-# Switch to the prevent-mode test policy so open-appsec actively blocks
-# high-confidence attacks.  autoPolicyLoad=true causes the agent to pick up
-# the change without a container restart.
-echo "Installing prevent-mode test policy..."
-docker exec -i "${CONTAINER_NAME}" sh -ec 'cat > /ext/appsec/local_policy.yaml && chmod 644 /ext/appsec/local_policy.yaml' \
-    < "${REPO_ROOT}/scripts/test-appsec-policy.yaml"
+# The prevent-mode policy was staged before container start; the agent has had the
+# full startup window to initialise in enforce mode.  No mid-run policy swap is needed.
 
 # Authenticate with NPM using configured first-run credentials.
 # The NPM API backend (SQLite DB init) may still be initialising even after
@@ -255,13 +253,14 @@ else
         docker logs "${CONTAINER_NAME}" --tail 50 || true
         exit 1
     else
-        echo "  Proxy host id=${HOST_ID}. Polling for nginx config reload and open-appsec policy reload..."
+        echo "  Proxy host id=${HOST_ID}. Polling for nginx config reload and open-appsec policy enforcement..."
 
-        # Single polling loop that covers both nginx proxy-host activation and
-        # open-appsec switching to prevent mode (autoPolicyLoad picks up the new file).
-        # The loop exits as soon as the attack is blocked with 403, or times out.
+        # The prevent-mode policy was loaded at agent startup.  Once the proxy host
+        # is active (nginx reloaded) the agent's attachment should start blocking
+        # high-confidence attacks immediately.  Allow up to 120 s for everything to
+        # settle (nginx reload + attachment ready + first blocked request).
         WAF_WAIT_START="$(date +%s)"
-        WAF_TIMEOUT=90
+        WAF_TIMEOUT=120
         ATTACK_STATUS="000"
         BENIGN_STATUS="000"
 
@@ -297,6 +296,9 @@ else
             echo "FAIL: open-appsec did not block SQL injection after ${WAF_TIMEOUT}s (last HTTP ${ATTACK_STATUS}, expected 403)"
             echo "  Verify scripts/test-appsec-policy.yaml has mode: prevent and override-mode: prevent."
             docker logs "${CONTAINER_NAME}" --tail 50 || true
+            echo "  --- open-appsec agent logs ---"
+            find "${TEST_TMP_DIR}/appsec/logs" -name "*.log" 2>/dev/null | sort | \
+                while IFS= read -r f; do echo "  [${f##*/}]"; tail -n 40 "$f" 2>/dev/null || true; done
             exit 1
         fi
     fi

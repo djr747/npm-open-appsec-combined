@@ -101,6 +101,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get -y upgrade -o Dpkg::Options::="--force-confold" \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         -o Dpkg::Options::="--force-confold" \
+        libicu72 \
         procps \
     && DEBIAN_FRONTEND=noninteractive apt-get purge -y --auto-remove jq \
     && rm -rf /tmp/openresty \
