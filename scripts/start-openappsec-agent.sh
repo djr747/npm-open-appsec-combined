@@ -165,6 +165,8 @@ NGINX_CONF
 }
 
 start_watchdog() {
+    mkdir -p /etc/cp/watchdog
+    : > /etc/cp/watchdog/wd.services.stop
     touch /etc/cp/watchdog/wd.startup
     /etc/cp/watchdog/cp-nano-watchdog >>"${WATCHDOG_LOG}" 2>&1 &
     WATCHDOG_PID="$!"
