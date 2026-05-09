@@ -173,10 +173,10 @@ curl -fsSL https://raw.githubusercontent.com/djr747/npm-open-appsec-combined/mai
 cat > .env <<'EOF'
 IMAGE_REPOSITORY=djr747/npm-open-appsec-combined
 NPM_IMAGE_TAG=latest
-CROWDSEC_ENROLL_KEY=<your-crowdsec-enrollment-key>
+CROWDSEC_ENROLL_KEY=your-crowdsec-enrollment-key
 CROWDSEC_ENROLL_INSTANCE_NAME=npm-open-appsec
-APPSEC_AGENT_TOKEN=<your-open-appsec-token>
-APPSEC_USER_EMAIL=<your-email>
+APPSEC_AGENT_TOKEN=your-open-appsec-token
+APPSEC_USER_EMAIL=you@example.com
 EOF
 
 # Start the stack (CrowdSec registration happens automatically when CROWDSEC_ENROLL_KEY is set)
