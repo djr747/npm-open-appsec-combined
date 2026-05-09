@@ -142,6 +142,7 @@ RUN mkdir -p /etc/s6-overlay/s6-rc.d/appsec-agent/dependencies.d \
     && printf "longrun\n" > /etc/s6-overlay/s6-rc.d/appsec-agent/type \
     && printf "#!/command/with-contenv bash\nset -e\nexec /usr/local/bin/start-openappsec-agent\n" > /etc/s6-overlay/s6-rc.d/appsec-agent/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/appsec-agent/run \
+    && printf "3\n" > /etc/s6-overlay/s6-rc.d/appsec-agent/notification-fd \
     && touch /etc/s6-overlay/s6-rc.d/appsec-agent/dependencies.d/prepare \
     && touch /etc/s6-overlay/s6-rc.d/nginx/dependencies.d/appsec-agent \
     && touch /etc/s6-overlay/s6-rc.d/user/contents.d/appsec-agent

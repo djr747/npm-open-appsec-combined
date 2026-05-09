@@ -190,6 +190,29 @@ configure_crowdsec_nginx
 
 start_watchdog
 
+# Wait for the attachment registration socket so that when nginx starts (whose s6
+# service depends on this one) the nginx workers can immediately connect to the
+# registrator.  Without this wait there is a race: nginx loads libngx_module.so
+# before the registrator has created the socket, the attachment silently enters
+# transparent mode, and the WAF never enforces the policy.
+#
+# We signal s6-overlay readiness (fd 3) once the socket appears so that the nginx
+# service — which depends on appsec-agent — is held back until that moment.
+ATTACH_SOCKET="/dev/shm/check-point/cp-nano-attachment-registration"
+SOCKET_WAIT_TIMEOUT=120
+SOCKET_WAIT_START="$(date +%s)"
+while [ ! -S "${ATTACH_SOCKET}" ]; do
+    if [ "$(( $(date +%s) - SOCKET_WAIT_START ))" -ge "${SOCKET_WAIT_TIMEOUT}" ]; then
+        echo "[open-appsec-agent] WARNING: attachment registration socket not ready after ${SOCKET_WAIT_TIMEOUT}s; proceeding without it"
+        break
+    fi
+    sleep 1
+done
+# Notify s6-overlay that this service is ready (fd 3 is provided by s6 when
+# notification-fd is configured).  If the fd is not open (e.g. manual run), fail
+# silently so the script continues normally.
+{ printf '\n' >&3; } 2>/dev/null || true
+
 while true; do
     # Trigger file used by open-appsec runtime components when watchdog-managed services are upgraded
     # or reconfigured and require a clean watchdog restart to reload processes.
