@@ -188,18 +188,31 @@ docker exec -i "${CONTAINER_NAME}" sh -ec 'cat > /ext/appsec/local_policy.yaml &
     < "${REPO_ROOT}/scripts/test-appsec-policy.yaml"
 
 # Authenticate with NPM using the default first-run credentials.
+# The NPM API backend (SQLite DB init) may still be initialising even after
+# the UI is reachable — poll until /api/tokens returns a JSON token or we time out.
 NPM_API="http://127.0.0.1:18081/api"
-echo "Authenticating with NPM API..."
-AUTH_RESPONSE=$(curl -sS --max-time 10 -X POST "${NPM_API}/tokens" \
-    -H "Content-Type: application/json" \
-    -d '{"identity":"admin@example.com","secret":"changeme"}' 2>/dev/null || echo '{}')
-NPM_TOKEN=$(echo "${AUTH_RESPONSE}" | python3 -c \
-    "import sys,json; d=json.load(sys.stdin); print(d.get('token',''))" 2>/dev/null \
-    || echo "")
+echo "Waiting for NPM API to be ready..."
+NPM_API_WAIT_START="$(date +%s)"
+NPM_API_TIMEOUT=60
+NPM_TOKEN=""
+AUTH_RESPONSE=""
+while [ $(($(date +%s) - NPM_API_WAIT_START)) -lt "${NPM_API_TIMEOUT}" ]; do
+    AUTH_RESPONSE=$(curl -sS --max-time 10 -X POST "${NPM_API}/tokens" \
+        -H "Content-Type: application/json" \
+        -d '{"identity":"admin@example.com","secret":"changeme"}' 2>/dev/null || true)
+    NPM_TOKEN=$(echo "${AUTH_RESPONSE}" | python3 -c \
+        "import sys,json; d=json.load(sys.stdin); print(d.get('token',''))" 2>/dev/null \
+        || true)
+    [ -n "${NPM_TOKEN}" ] && break
+    sleep 3
+done
 
+echo "Authenticating with NPM API..."
 if [ -z "${NPM_TOKEN}" ]; then
-    echo "SKIP: Cannot authenticate with NPM API — skipping WAF block test."
-    echo "  Response: ${AUTH_RESPONSE}"
+    echo "FAIL: Cannot authenticate with NPM API after ${NPM_API_TIMEOUT}s."
+    echo "  Last response: ${AUTH_RESPONSE}"
+    docker logs "${CONTAINER_NAME}" --tail 50 || true
+    exit 1
 else
     # Create a proxy host using the container's own NPM admin UI (127.0.0.1:81
     # inside the container) as the upstream — no external service needed.
@@ -228,8 +241,10 @@ else
         || echo "")
 
     if [ -z "${HOST_ID}" ] || [ "${HOST_ID}" = "None" ]; then
-        echo "SKIP: Cannot create proxy host — skipping WAF block test."
+        echo "FAIL: Cannot create proxy host via NPM API."
         echo "  API response: ${HOST_RESPONSE}"
+        docker logs "${CONTAINER_NAME}" --tail 50 || true
+        exit 1
     else
         echo "  Proxy host id=${HOST_ID}. Polling for nginx config reload and open-appsec policy reload..."
 
