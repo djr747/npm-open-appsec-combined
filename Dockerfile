@@ -55,6 +55,11 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         -o Dpkg::Options::="--force-confold" \
         procps \
+    && DEBIAN_FRONTEND=noninteractive apt-get purge -y --auto-remove jq \
+    && rm -rf /tmp/openresty \
+    && cd /app \
+    && npm install --omit=dev --no-audit --no-fund basic-ftp@5.3.0 \
+    && /opt/certbot/bin/pip install --no-cache-dir --upgrade "multipart>=1.3.1" \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /usr/lib/nginx/modules /ext/appsec /etc/cp/conf /etc/cp/data /var/log/nano_agent /dev/shm/check-point \
