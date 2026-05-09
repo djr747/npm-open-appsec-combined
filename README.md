@@ -168,19 +168,21 @@ mkdir -p crowdsec/acquis.d
 curl -fsSL https://raw.githubusercontent.com/djr747/npm-open-appsec-combined/main/crowdsec/acquis.d/npm-open-appsec.yaml \
      -o crowdsec/acquis.d/npm-open-appsec.yaml
 
-# (Optional) Enroll this CrowdSec instance in CrowdSec Console.
-# Generate an enrollment key at https://app.crowdsec.net and set it here:
-export CROWDSEC_ENROLL_KEY="<your-crowdsec-enrollment-key>"
-export CROWDSEC_ENROLL_INSTANCE_NAME="npm-open-appsec"
+# Create a reusable compose env file.
+# Generate CROWDSEC_ENROLL_KEY at https://app.crowdsec.net (Security Engines -> Add Security Engine)
+cat > .env <<'EOF'
+IMAGE_REPOSITORY=djr747/npm-open-appsec-combined
+NPM_IMAGE_TAG=latest
+CROWDSEC_ENROLL_KEY=<your-crowdsec-enrollment-key>
+CROWDSEC_ENROLL_INSTANCE_NAME=npm-open-appsec
+APPSEC_AGENT_TOKEN=<your-open-appsec-token>
+APPSEC_USER_EMAIL=<your-email>
+EOF
 
-# Set your open-appsec cloud token (leave empty for local-policy mode)
-export APPSEC_AGENT_TOKEN="<your-open-appsec-token>"
-export APPSEC_USER_EMAIL="<your-email>"
+# Start the stack (CrowdSec registration happens automatically when CROWDSEC_ENROLL_KEY is set)
+docker compose --env-file .env up -d
 
-# Start the stack
-docker compose up -d
-
-# After the stack is running, confirm CrowdSec is enrolled (if CROWDSEC_ENROLL_KEY was set)
+# Confirm CrowdSec registration status
 docker compose exec crowdsec cscli console status
 ```
 
