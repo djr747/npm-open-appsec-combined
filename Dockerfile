@@ -41,6 +41,8 @@ RUN nginx -V &> /tmp/nginx.ver \
     && cmake -DCMAKE_INSTALL_PREFIX=/tmp/build_out . \
     && make -j"$(nproc)" install
 
+# openappsec/agent currently publishes amd64 only, so release workflows should
+# not publish arm64 images until open-appsec installer binaries are built natively.
 FROM ghcr.io/openappsec/agent:latest AS appsec-installers
 
 FROM jc21/nginx-proxy-manager:${NPM_TAG}

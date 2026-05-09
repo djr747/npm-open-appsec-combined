@@ -138,7 +138,7 @@ docker compose -f examples/docker-compose.cloud-managed.yml up -d
 That compose file is fully declarative:
 
 - CrowdSec acquisition config is provided via a bind-mounted file
-  (`crowdsec/acquis.d/npm-open-appsec.yaml`) — already included in this repo (no download needed)
+  (`crowdsec/acquis.d/npm-open-appsec.yaml`)
 - `npm-open-appsec` auto-generates the nginx custom includes on first start
 - all proxy hosts are protected automatically through NPM's global `server_proxy.conf` and
   `server_redirect.conf` custom include hooks
@@ -214,9 +214,8 @@ Workflow: `.github/workflows/build-image.yml`
   - `<npm-release-tag>`
   - `<npm-release-tag>-oas-<attachment-commit-short-sha>`
   - `nightly`
-- Build strategy: `amd64` on `ubuntu-latest` (native), `arm64` on `ubuntu-24.04-arm` (native,
-  no QEMU). Each platform is built independently and pushed by digest; a `merge` job assembles
-  the multi-arch manifest list.
+- Build strategy: `amd64` on `ubuntu-latest` (native). The current image copies
+  `/nano-service-installers` from `ghcr.io/openappsec/agent`, which is amd64-only.
 
 ## Integration test
 
