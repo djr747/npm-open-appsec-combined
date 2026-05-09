@@ -1,7 +1,7 @@
 ARG NPM_TAG=latest
 ARG CERT_PRUNE_VERSION=v0.0.0-20230515051954-ab01c6e0bab5
 
-FROM golang:1.24-bookworm AS cert-prune-builder
+FROM golang:1.26-bookworm AS cert-prune-builder
 ARG CERT_PRUNE_VERSION
 ENV CGO_ENABLED=0
 RUN go install github.com/axllent/cert-prune@${CERT_PRUNE_VERSION}

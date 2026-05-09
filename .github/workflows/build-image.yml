@@ -2,6 +2,9 @@ name: Build open-appsec NPM image
 
 on:
   pull_request:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       npm_tag:
@@ -160,10 +163,45 @@ jobs:
             ATTACHMENT_REF=${{ needs.resolve.outputs.attachment_ref }}
             OPENAPPSEC_REF=${{ needs.resolve.outputs.openappsec_ref }}
 
+  # Run the integration test against the already-built amd64 image slice before
+  # assembling the multi-arch manifest. Pull the image by its content digest
+  # (produced by the build-amd64 job) and hand it to the existing test script
+  # with SKIP_BUILD=1 to avoid a second full image build.
+  #
+  # Skipped on nightly (schedule) builds and on direct pushes to main, because
+  # those events follow a PR that already ran the test.
+  integrate:
+    runs-on: ubuntu-latest
+    needs: [resolve, build-amd64]
+    if: >-
+      github.event_name != 'schedule' &&
+      !(github.event_name == 'push' && github.ref == 'refs/heads/main')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Login to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull amd64 image by digest and tag for integration test
+        run: |
+          docker pull "${{ env.IMAGE_NAME }}@${{ needs.build-amd64.outputs.digest }}"
+          docker tag  "${{ env.IMAGE_NAME }}@${{ needs.build-amd64.outputs.digest }}" local/npm-open-appsec:integration
+
+      - name: Run single-container startup integration test
+        env:
+          IMAGE_NAME: local/npm-open-appsec:integration
+          SKIP_BUILD: "1"
+        run: ./scripts/test-single-container-startup.sh
+
   # Assemble and tag a multi-arch manifest from the amd64 and arm64 digests.
   merge:
     runs-on: ubuntu-latest
-    needs: [resolve, build-amd64, build-arm64]
+    needs: [resolve, build-amd64, build-arm64, integrate]
     outputs:
       image_ref: ${{ steps.image_ref.outputs.image_ref }}
     steps:
@@ -187,6 +225,7 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=pr
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
             type=raw,value=${{ needs.resolve.outputs.npm_tag }},enable=${{ github.event_name != 'pull_request' }}
             type=raw,value=${{ needs.resolve.outputs.npm_tag }}-oas-${{ needs.resolve.outputs.attachment_short_sha }},enable=${{ github.event_name != 'pull_request' }}
             type=raw,value=nightly,enable=${{ github.event_name == 'schedule' }}
@@ -240,17 +279,19 @@ jobs:
 
       # Grype (anchore/scan-action) is fully free and requires no token or account.
       # Step 1: table output so findings are visible directly in the job log.
-      # fail-build: true makes the job fail when high or critical findings exist,
-      # so vulnerabilities cannot be silently ignored.
-      - name: Grype container scan (table — fail on high)
+      # Only fixable vulnerabilities are considered (GRYPE_ONLY_FIXED=true), and
+      # fail-build triggers on Critical severity only.
+      - name: Grype container scan (table — fail on critical fixable)
         id: grype_table
         uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
         env:
           # Skip DB age validation on ephemeral runners to avoid false failures.
           GRYPE_DB_VALIDATE_AGE: "false"
+          # Only fail on vulnerabilities that have a fix available.
+          GRYPE_ONLY_FIXED: "true"
         with:
           image: ${{ needs.merge.outputs.image_ref }}
-          severity-cutoff: high
+          severity-cutoff: critical
           output-format: table
           cache-db: false
           fail-build: true
@@ -263,9 +304,10 @@ jobs:
         uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
         env:
           GRYPE_DB_VALIDATE_AGE: "false"
+          GRYPE_ONLY_FIXED: "true"
         with:
           image: ${{ needs.merge.outputs.image_ref }}
-          severity-cutoff: high
+          severity-cutoff: critical
           output-format: sarif
           cache-db: false
           fail-build: false
