@@ -214,8 +214,9 @@ Workflow: `.github/workflows/build-image.yml`
   - `<npm-release-tag>`
   - `<npm-release-tag>-oas-<attachment-commit-short-sha>`
   - `nightly`
-- Build strategy: `amd64` on `ubuntu-latest` (native). The current image copies
-  `/nano-service-installers` from `ghcr.io/openappsec/agent`, which is amd64-only.
+- Build strategy: `amd64` on `ubuntu-latest` (native). In `Dockerfile`, the
+  `COPY --from=appsec-installers /nano-service-installers /nano-service-installers`
+  step sources installers from `ghcr.io/openappsec/agent`, which is currently amd64-only.
 
 ## Integration test
 
