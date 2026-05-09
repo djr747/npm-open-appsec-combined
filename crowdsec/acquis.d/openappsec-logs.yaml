@@ -1,0 +1,21 @@
+---
+# Optional: ingest open-appsec intrusion-detection logs into CrowdSec for
+# IP-reputation scoring and alerting.
+#
+# To activate:
+#   1. Uncomment the filenames block below.
+#   2. Add the open-appsec log mount (read-only) to the crowdsec service in your
+#      compose file:
+#
+#        volumes:
+#          - ./appsec/logs:/var/log/nano_agent:ro
+#
+# Note: CrowdSec does not ship an open-appsec parser by default.
+#       You must create (or find) a custom parser that understands the JSON
+#       structured-log format produced by the open-appsec nano-agent.
+#       See https://docs.crowdsec.io/docs/next/parsers/create for details.
+#
+# filenames:
+#   - /var/log/nano_agent/cp-nano-agent.log
+# labels:
+#   type: openappsec

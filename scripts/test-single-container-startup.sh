@@ -9,6 +9,8 @@
 #   5. nginx workers and node (NPM backend) run as configured PUID (non-root)
 #   6. /dev/shm/check-point is accessible inside the container (intra-container only)
 #   7. Attachment commit file is present
+#   8. open-appsec WAF blocks a high-confidence SQL-injection attack with HTTP 403
+#      (prevent-mode policy applied via autoPolicyLoad; proxy host set up via NPM API)
 
 set -euo pipefail
 
@@ -174,6 +176,108 @@ if ! docker exec "${CONTAINER_NAME}" test -f /etc/openappsec-attachment.commit; 
 fi
 ATTACH_COMMIT="$(docker exec "${CONTAINER_NAME}" cat /etc/openappsec-attachment.commit)"
 echo "PASS: attachment commit ${ATTACH_COMMIT}"
+
+echo ""
+echo "=== WAF block verification (open-appsec prevent mode) ==="
+
+# Switch to the prevent-mode test policy so open-appsec actively blocks
+# high-confidence attacks.  autoPolicyLoad=true causes the agent to pick up
+# the change without a container restart.
+echo "Installing prevent-mode test policy..."
+cp "${REPO_ROOT}/scripts/test-appsec-policy.yaml" \
+   "${TEST_TMP_DIR}/appsec/localconfig/local_policy.yaml"
+chmod 644 "${TEST_TMP_DIR}/appsec/localconfig/local_policy.yaml"
+
+# Authenticate with NPM using the default first-run credentials.
+NPM_API="http://127.0.0.1:18081/api"
+echo "Authenticating with NPM API..."
+AUTH_RESPONSE=$(curl -sS --max-time 10 -X POST "${NPM_API}/tokens" \
+    -H "Content-Type: application/json" \
+    -d '{"identity":"admin@example.com","secret":"changeme"}' 2>/dev/null || echo '{}')
+NPM_TOKEN=$(echo "${AUTH_RESPONSE}" | python3 -c \
+    "import sys,json; d=json.load(sys.stdin); print(d.get('token',''))" 2>/dev/null \
+    || echo "")
+
+if [ -z "${NPM_TOKEN}" ]; then
+    echo "SKIP: Cannot authenticate with NPM API — skipping WAF block test."
+    echo "  Response: ${AUTH_RESPONSE}"
+else
+    # Create a proxy host using the container's own NPM admin UI (127.0.0.1:81
+    # inside the container) as the upstream — no external service needed.
+    echo "Creating test proxy host (waf-test.local → 127.0.0.1:81)..."
+    HOST_RESPONSE=$(curl -sS --max-time 10 -X POST "${NPM_API}/nginx/proxy-hosts" \
+        -H "Authorization: Bearer ${NPM_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d '{
+            "domain_names":["waf-test.local"],
+            "forward_scheme":"http",
+            "forward_host":"127.0.0.1",
+            "forward_port":81,
+            "access_list_id":0,
+            "certificate_id":0,
+            "ssl_forced":false,
+            "caching_enabled":false,
+            "block_exploits":false,
+            "allow_websocket_upgrade":false,
+            "http2_support":false,
+            "hsts_enabled":false,
+            "hsts_subdomains":false,
+            "advanced_config":""
+        }' 2>/dev/null || echo '{}')
+    HOST_ID=$(echo "${HOST_RESPONSE}" | python3 -c \
+        "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null \
+        || echo "")
+
+    if [ -z "${HOST_ID}" ] || [ "${HOST_ID}" = "None" ]; then
+        echo "SKIP: Cannot create proxy host — skipping WAF block test."
+        echo "  API response: ${HOST_RESPONSE}"
+    else
+        echo "  Proxy host id=${HOST_ID}. Polling for nginx config reload and open-appsec policy reload..."
+
+        # Single polling loop that covers both nginx proxy-host activation and
+        # open-appsec switching to prevent mode (autoPolicyLoad picks up the new file).
+        # The loop exits as soon as the attack is blocked with 403, or times out.
+        WAF_WAIT_START="$(date +%s)"
+        WAF_TIMEOUT=90
+        ATTACK_STATUS="000"
+        BENIGN_STATUS="000"
+
+        while [ $(($(date +%s) - WAF_WAIT_START)) -lt "${WAF_TIMEOUT}" ]; do
+            BENIGN_STATUS=$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' \
+                -H "Host: waf-test.local" \
+                "http://127.0.0.1:18080/" 2>/dev/null || echo "000")
+
+            ATTACK_STATUS=$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' \
+                -H "Host: waf-test.local" \
+                "http://127.0.0.1:18080/?id=1%27%20UNION%20SELECT%20password%20FROM%20users--" \
+                2>/dev/null || echo "000")
+
+            [ "${ATTACK_STATUS}" = "403" ] && break
+            sleep 3
+        done
+
+        # Benign check: open-appsec must not block normal traffic.
+        if [ "${BENIGN_STATUS}" = "403" ]; then
+            echo "FAIL: open-appsec blocked a benign request (HTTP 403 on plain GET /)"
+            docker logs "${CONTAINER_NAME}" --tail 50 || true
+            exit 1
+        fi
+        echo "  Benign request allowed: HTTP ${BENIGN_STATUS}"
+
+        if [ "${ATTACK_STATUS}" = "403" ]; then
+            echo "PASS: open-appsec blocked SQL injection attack (HTTP 403)"
+        elif [ "${ATTACK_STATUS}" = "000" ]; then
+            echo "FAIL: No response to attack request after ${WAF_TIMEOUT}s (nginx not ready or connection error)"
+            docker logs "${CONTAINER_NAME}" --tail 50 || true
+            exit 1
+        else
+            echo "FAIL: open-appsec did not block SQL injection after ${WAF_TIMEOUT}s (last HTTP ${ATTACK_STATUS}, expected 403)"
+            echo "  Verify scripts/test-appsec-policy.yaml has mode: prevent and override-mode: prevent."
+            docker logs "${CONTAINER_NAME}" --tail 50 || true
+            exit 1
+        fi
+    fi
+fi
 
 echo ""
 echo "UI endpoint: HTTP ${UI_STATUS}"

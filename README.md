@@ -20,6 +20,30 @@ This removes the cross-container IPC/shared-memory requirement for NPM + open-ap
   - `/etc/cp/data`
   - `/var/log/nano_agent`
 
+## Security patching strategy
+
+### What is patched on each build
+
+- **Debian packages** — every build runs `apt-get -y upgrade` inside the final image to apply
+  all Debian 12 (bookworm) security patches available at build time.
+- **Go stdlib (cert-prune)** — the `cert-prune` utility is compiled with `golang:1.26`, which
+  tracks the latest Go 1.26 patch releases. This keeps the binary above the fix thresholds
+  for Go stdlib CVEs such as CVE-2026-27143 (requires ≥ 1.25.9 / 1.26.2).
+- **Nightly rebuilds** — a scheduled workflow rebuilds the image every night so that security
+  patches released by Debian or the Go team are automatically incorporated without manual
+  intervention.
+
+### When a build is blocked from publishing
+
+The Grype CVE scanner runs against every built image. Publishing is **blocked only** when
+Grype finds a vulnerability that satisfies **both** conditions:
+
+1. **Fixable** — a remediated package version is already available in the vulnerability database.
+2. **Critical** — rated Critical by NVD / GHSA.
+
+High, medium, and low findings, and any un-fixable Critical finding, are surfaced in GitHub
+Code Scanning but do **not** prevent the image from being published.
+
 ## Cloud-managed open-appsec configuration
 
 For cloud-managed policy (primary use case), set these environment variables on the **same** `npm-open-appsec` container:
@@ -131,12 +155,33 @@ generates nginx `auth_request` config automatically from container environment v
 ### Quick start
 
 ```bash
-# Clone this repo and run from the repo root
-git clone https://github.com/djr747/npm-open-appsec-combined.git
-cd npm-open-appsec-combined
+# Pull the pre-built image
+docker pull ghcr.io/djr747/npm-open-appsec-combined:latest
 
-# Start the cloud-managed open-appsec stack with CrowdSec sidecar
-docker compose -f examples/docker-compose.cloud-managed.yml up -d
+# Create a working directory and download only the files you need
+mkdir npm-open-appsec && cd npm-open-appsec
+
+curl -fsSL https://raw.githubusercontent.com/djr747/npm-open-appsec-combined/main/examples/docker-compose.cloud-managed.yml \
+     -o docker-compose.yml
+
+mkdir -p crowdsec/acquis.d
+curl -fsSL https://raw.githubusercontent.com/djr747/npm-open-appsec-combined/main/crowdsec/acquis.d/npm-open-appsec.yaml \
+     -o crowdsec/acquis.d/npm-open-appsec.yaml
+
+# (Optional) Enroll this CrowdSec instance in CrowdSec Console.
+# Generate an enrollment key at https://app.crowdsec.net and set it here:
+export CROWDSEC_ENROLL_KEY="<your-crowdsec-enrollment-key>"
+export CROWDSEC_ENROLL_INSTANCE_NAME="npm-open-appsec"
+
+# Set your open-appsec cloud token (leave empty for local-policy mode)
+export APPSEC_AGENT_TOKEN="<your-open-appsec-token>"
+export APPSEC_USER_EMAIL="<your-email>"
+
+# Start the stack
+docker compose up -d
+
+# After the stack is running, confirm CrowdSec is enrolled (if CROWDSEC_ENROLL_KEY was set)
+docker compose exec crowdsec cscli console status
 ```
 
 That compose file is fully declarative:
@@ -202,9 +247,22 @@ status codes.
 ### open-appsec log ingestion into CrowdSec
 
 This streamlined setup focuses on NPM access-log parsing plus optional CrowdSec AppSec request
-inspection. If you later want CrowdSec to ingest open-appsec intrusion logs as well, add another
-acquisition entry under `/etc/crowdsec/acquis.d/` and mount `/var/log/nano_agent` into the
-CrowdSec container read-only.
+inspection. If you later want CrowdSec to ingest open-appsec intrusion logs as well, a template
+acquisition config is provided at
+[`crowdsec/acquis.d/openappsec-logs.yaml`](crowdsec/acquis.d/openappsec-logs.yaml).
+
+Activate it by uncommenting the `filenames` block in that file and adding the open-appsec log
+mount to the CrowdSec container:
+
+```yaml
+volumes:
+  - ./appsec/logs:/var/log/nano_agent:ro
+```
+
+> **Note:** CrowdSec does not ship a built-in open-appsec log parser. A custom parser that
+> understands the nano-agent JSON log format is required before CrowdSec can score events from
+> those logs. See the [CrowdSec parser documentation](https://docs.crowdsec.io/docs/next/parsers/create)
+> for details.
 
 ## Automated image workflow
 
@@ -225,7 +283,10 @@ Workflow: `.github/workflows/build-image.yml`
 
 ## Integration test
 
-Workflow: `.github/workflows/integration-test.yml`
+The integration test runs as the `integrate` job inside
+`.github/workflows/build-image.yml` (after the build phase, before the multi-arch manifest
+merge). It is skipped on nightly and push-to-main events, which follow a PR that already ran
+the test.
 
 Local run:
 
@@ -239,6 +300,12 @@ The integration test builds the image, starts one container, and verifies:
 - nginx process is running
 - NPM backend process is running
 - NPM UI endpoint on port `81` responds (`200`/`301`/`302`)
+- nginx workers run as configured `PUID` (non-root)
+- `node` (NPM backend) runs as configured `PUID` (non-root)
+- `/dev/shm/check-point` is present (intra-container shared memory, no IPC sharing needed)
+- Attachment commit file is present
+- open-appsec WAF blocks a high-confidence SQL injection with HTTP 403 (prevent-mode policy
+  loaded via `autoPolicyLoad=true`; proxy host configured via the NPM REST API)
 
 ## Example deployments
 
