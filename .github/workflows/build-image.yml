@@ -12,6 +12,10 @@ on:
         description: "openappsec/attachment git ref (defaults to main)"
         required: false
         type: string
+      openappsec_ref:
+        description: "openappsec/openappsec git ref (defaults to main)"
+        required: false
+        type: string
   schedule:
     - cron: "0 3 * * *"
 
@@ -34,12 +38,16 @@ jobs:
       attachment_ref: ${{ steps.meta.outputs.attachment_ref }}
       attachment_sha: ${{ steps.meta.outputs.attachment_sha }}
       attachment_short_sha: ${{ steps.meta.outputs.attachment_short_sha }}
+      openappsec_ref: ${{ steps.meta.outputs.openappsec_ref }}
+      openappsec_sha: ${{ steps.meta.outputs.openappsec_sha }}
+      openappsec_short_sha: ${{ steps.meta.outputs.openappsec_short_sha }}
     steps:
       - name: Resolve upstream versions
         id: meta
         env:
           INPUT_NPM_TAG: ${{ inputs.npm_tag }}
           INPUT_ATTACHMENT_REF: ${{ inputs.attachment_ref }}
+          INPUT_OPENAPPSEC_REF: ${{ inputs.openappsec_ref }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -67,11 +75,21 @@ jobs:
             exit 1
           fi
 
+          openappsec_ref="${INPUT_OPENAPPSEC_REF:-main}"
+          openappsec_sha="$(git ls-remote https://github.com/openappsec/openappsec.git "${openappsec_ref}" | awk '{print $1}' | head -n1)"
+          if [ -z "${openappsec_sha}" ]; then
+            echo "Unable to resolve openappsec/openappsec ref: ${openappsec_ref}" >&2
+            exit 1
+          fi
+
           {
             echo "npm_tag=${npm_tag}"
             echo "attachment_ref=${attachment_ref}"
             echo "attachment_sha=${attachment_sha}"
             echo "attachment_short_sha=${attachment_sha:0:12}"
+            echo "openappsec_ref=${openappsec_ref}"
+            echo "openappsec_sha=${openappsec_sha}"
+            echo "openappsec_short_sha=${openappsec_sha:0:12}"
           } >> "${GITHUB_OUTPUT}"
 
   # Build the amd64 image slice on a native amd64 runner (no emulation).
@@ -107,11 +125,45 @@ jobs:
           build-args: |
             NPM_TAG=${{ needs.resolve.outputs.npm_tag }}
             ATTACHMENT_REF=${{ needs.resolve.outputs.attachment_ref }}
+            OPENAPPSEC_REF=${{ needs.resolve.outputs.openappsec_ref }}
 
-  # Assemble and tag the published image from the amd64 digest.
+  # Build the arm64 image slice on a native arm64 runner.
+  build-arm64:
+    runs-on: ubuntu-24.04-arm
+    needs: resolve
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Login to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build arm64 image and push by digest
+        id: build
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/arm64
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            NPM_TAG=${{ needs.resolve.outputs.npm_tag }}
+            ATTACHMENT_REF=${{ needs.resolve.outputs.attachment_ref }}
+            OPENAPPSEC_REF=${{ needs.resolve.outputs.openappsec_ref }}
+
+  # Assemble and tag a multi-arch manifest from the amd64 and arm64 digests.
   merge:
     runs-on: ubuntu-latest
-    needs: [resolve, build-amd64]
+    needs: [resolve, build-amd64, build-arm64]
     outputs:
       image_ref: ${{ steps.image_ref.outputs.image_ref }}
     steps:
@@ -143,6 +195,8 @@ jobs:
             org.opencontainers.image.version=${{ needs.resolve.outputs.npm_tag }}-oas-${{ needs.resolve.outputs.attachment_short_sha }}
             io.openappsec.attachment.ref=${{ needs.resolve.outputs.attachment_ref }}
             io.openappsec.attachment.sha=${{ needs.resolve.outputs.attachment_sha }}
+            io.openappsec.core.ref=${{ needs.resolve.outputs.openappsec_ref }}
+            io.openappsec.core.sha=${{ needs.resolve.outputs.openappsec_sha }}
 
       - name: Create and push multi-arch manifest
         run: |
@@ -156,10 +210,11 @@ jobs:
           TAG_FLAGS=$(jq -r '.tags | map("-t " + .) | join(" ")' <<< "${metadata_json}") \
             || { echo "::error::Failed to parse tags from metadata"; exit 1; }
 
-          # imagetools create tags the published digest under all requested tags.
+          # imagetools create assembles a manifest list and tags it.
           # shellcheck disable=SC2086
           docker buildx imagetools create ${TAG_FLAGS} \
-            "${{ env.IMAGE_NAME }}@${{ needs.build-amd64.outputs.digest }}"
+            "${{ env.IMAGE_NAME }}@${{ needs.build-amd64.outputs.digest }}" \
+            "${{ env.IMAGE_NAME }}@${{ needs.build-arm64.outputs.digest }}"
 
       - name: Export primary image ref for scan
         id: image_ref

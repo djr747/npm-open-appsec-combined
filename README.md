@@ -131,6 +131,10 @@ generates nginx `auth_request` config automatically from container environment v
 ### Quick start
 
 ```bash
+# Clone this repo and run from the repo root
+git clone https://github.com/djr747/npm-open-appsec-combined.git
+cd npm-open-appsec-combined
+
 # Start the cloud-managed open-appsec stack with CrowdSec sidecar
 docker compose -f examples/docker-compose.cloud-managed.yml up -d
 ```
@@ -210,13 +214,14 @@ Workflow: `.github/workflows/build-image.yml`
 - Manual `workflow_dispatch` with optional:
   - `npm_tag`
   - `attachment_ref`
+  - `openappsec_ref`
 - Published tags:
   - `<npm-release-tag>`
   - `<npm-release-tag>-oas-<attachment-commit-short-sha>`
   - `nightly`
-- Build strategy: `amd64` on `ubuntu-latest` (native). In `Dockerfile`, the
-  `COPY --from=appsec-installers /nano-service-installers /nano-service-installers`
-  step sources installers from `ghcr.io/openappsec/agent`, which is currently amd64-only.
+- Build strategy: `amd64` on `ubuntu-latest` (native), `arm64` on `ubuntu-24.04-arm`
+  (native). The Dockerfile builds open-appsec installers from
+  `openappsec/openappsec` source in a Debian build stage for each target architecture.
 
 ## Integration test
 

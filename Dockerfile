@@ -41,9 +41,46 @@ RUN nginx -V &> /tmp/nginx.ver \
     && cmake -DCMAKE_INSTALL_PREFIX=/tmp/build_out . \
     && make -j"$(nproc)" install
 
-# openappsec/agent currently publishes amd64 only, so release workflows should
-# not publish arm64 images until open-appsec installer binaries are built natively.
-FROM ghcr.io/openappsec/agent:latest AS appsec-installers
+FROM debian:bookworm-slim AS appsec-installers
+
+ARG OPENAPPSEC_REF=main
+
+RUN DEBIAN_FRONTEND=noninteractive apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        cmake \
+        git \
+        libboost-all-dev \
+        libbrotli-dev \
+        libcurl4-openssl-dev \
+        libgmock-dev \
+        libgtest-dev \
+        libhiredis-dev \
+        libmaxminddb-dev \
+        libpcre2-dev \
+        libssl-dev \
+        libxml2-dev \
+        pkg-config \
+        python3 \
+        redis-server \
+        yq \
+        zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone https://github.com/openappsec/openappsec.git /tmp/openappsec \
+    && cd /tmp/openappsec \
+    && git checkout "${OPENAPPSEC_REF}" \
+    && git rev-parse HEAD > /tmp/openappsec-commit \
+    && cmake -DCMAKE_INSTALL_PREFIX=/tmp/openappsec-build . \
+    && make -j"$(nproc)" install \
+    && make -j"$(nproc)" package
+
+RUN mkdir -p /nano-service-installers \
+    && cp /tmp/openappsec-build/install-cp-nano-agent.sh /nano-service-installers/ \
+    && cp /tmp/openappsec-build/install-cp-nano-attachment-registration-manager.sh /nano-service-installers/ \
+    && cp /tmp/openappsec-build/install-cp-nano-agent-cache.sh /nano-service-installers/ \
+    && cp /tmp/openappsec-build/install-cp-nano-service-http-transaction-handler.sh /nano-service-installers/
 
 FROM jc21/nginx-proxy-manager:${NPM_TAG}
 
@@ -83,6 +120,7 @@ COPY --from=attachment-builder /tmp/build_out/lib/libosrc_compression_utils.so /
 COPY --from=attachment-builder /tmp/build_out/lib/libosrc_shmem_ipc.so /usr/lib/libosrc_shmem_ipc.so
 COPY --from=attachment-builder /tmp/attachment-commit /etc/openappsec-attachment.commit
 COPY --from=appsec-installers /nano-service-installers /nano-service-installers
+COPY --from=appsec-installers /tmp/openappsec-commit /etc/openappsec-core.commit
 COPY scripts/start-openappsec-agent.sh /usr/local/bin/start-openappsec-agent
 
 RUN grep -q '^include /etc/nginx/modules/\*\.conf;$' /etc/nginx/nginx.conf \
