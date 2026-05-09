@@ -254,7 +254,7 @@ else
         exit 1
     else
         echo "  Proxy host id=${HOST_ID}. Polling for nginx config reload and open-appsec policy enforcement..."
-        ADV_MODEL_PRESENT="$(docker exec "${CONTAINER_NAME}" sh -c \
+        ADVANCED_MODEL_PRESENT="$(docker exec "${CONTAINER_NAME}" sh -c \
             'test -f /etc/cp/conf/waap/cp-ab.js && test -f /etc/cp/conf/waap/cp-csrf.js && echo 1 || echo 0')"
 
         # The prevent-mode policy was loaded at agent startup.  Once the proxy host
@@ -299,12 +299,15 @@ else
                 'grep -q "Web AppSec Policy Loaded Successfully" /var/log/nano_agent/cp-nano-http-transaction-handler.log* 2>/dev/null && echo 1 || echo 0')"
             ATTACH_REGISTERED="$(docker exec "${CONTAINER_NAME}" sh -c \
                 'grep -q "Successfully registered attachment" /var/log/nano_agent/cp-nano-http-transaction-handler.dbg* 2>/dev/null && echo 1 || echo 0')"
-            if [ "${ADV_MODEL_PRESENT}" = "0" ] && [ "${POLICY_LOADED}" = "1" ] && [ "${ATTACH_REGISTERED}" = "1" ]; then
+            # In local-policy mode without advanced model assets, SQLi signatures may be unavailable.
+            # In that case we treat "policy loaded + attachment registered + benign traffic allowed"
+            # as a valid enforcement-pipeline pass condition.
+            if [ "${ADVANCED_MODEL_PRESENT}" = "0" ] && [ "${POLICY_LOADED}" = "1" ] && [ "${ATTACH_REGISTERED}" = "1" ]; then
                 echo "PASS: policy enforcement signals verified (SQLi blocking unavailable without local model assets; attack remained HTTP ${ATTACK_STATUS})"
             else
                 echo "FAIL: open-appsec did not block SQL injection after ${WAF_TIMEOUT}s (last HTTP ${ATTACK_STATUS}, expected 403)"
                 echo "  Verify scripts/test-appsec-policy.yaml has mode: prevent and override-mode: prevent."
-                echo "  advanced model assets present: ${ADV_MODEL_PRESENT}"
+                echo "  advanced model assets present: ${ADVANCED_MODEL_PRESENT}"
                 echo "  policy loaded signal present: ${POLICY_LOADED}"
                 echo "  attachment registered signal present: ${ATTACH_REGISTERED}"
                 docker logs "${CONTAINER_NAME}" --tail 50 || true
