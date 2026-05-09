@@ -22,6 +22,8 @@ TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-180}"
 CURL_ERROR_CODE="000"  # curl exit code placeholder when the request fails
 PUID=1000
 PGID=1000
+NPM_ADMIN_EMAIL="${NPM_ADMIN_EMAIL:-admin@example.com}"
+NPM_ADMIN_PASSWORD="${NPM_ADMIN_PASSWORD:-changeme}"
 
 TEST_TMP_DIR="$(mktemp -d)"
 
@@ -60,6 +62,8 @@ echo "Starting container in local-policy mode..."
 docker run -d --name "${CONTAINER_NAME}" \
     -e PUID="${PUID}" \
     -e PGID="${PGID}" \
+    -e INITIAL_ADMIN_EMAIL="${NPM_ADMIN_EMAIL}" \
+    -e INITIAL_ADMIN_PASSWORD="${NPM_ADMIN_PASSWORD}" \
     -e autoPolicyLoad=true \
     -v "${TEST_TMP_DIR}/data:/data" \
     -v "${TEST_TMP_DIR}/letsencrypt:/etc/letsencrypt" \
@@ -187,10 +191,14 @@ echo "Installing prevent-mode test policy..."
 docker exec -i "${CONTAINER_NAME}" sh -ec 'cat > /ext/appsec/local_policy.yaml && chmod 644 /ext/appsec/local_policy.yaml' \
     < "${REPO_ROOT}/scripts/test-appsec-policy.yaml"
 
-# Authenticate with NPM using the default first-run credentials.
+# Authenticate with NPM using configured first-run credentials.
 # The NPM API backend (SQLite DB init) may still be initialising even after
 # the UI is reachable — poll until /api/tokens returns a JSON token or we time out.
 NPM_API="http://127.0.0.1:18081/api"
+NPM_AUTH_PAYLOAD="$(
+    NPM_ADMIN_EMAIL="${NPM_ADMIN_EMAIL}" NPM_ADMIN_PASSWORD="${NPM_ADMIN_PASSWORD}" \
+    python3 -c 'import json, os; print(json.dumps({"identity": os.environ["NPM_ADMIN_EMAIL"], "secret": os.environ["NPM_ADMIN_PASSWORD"]}))'
+)"
 echo "Waiting for NPM API to be ready..."
 NPM_API_WAIT_START="$(date +%s)"
 NPM_API_TIMEOUT=60
@@ -199,7 +207,7 @@ AUTH_RESPONSE=""
 while [ $(($(date +%s) - NPM_API_WAIT_START)) -lt "${NPM_API_TIMEOUT}" ]; do
     AUTH_RESPONSE=$(curl -sS --max-time 10 -X POST "${NPM_API}/tokens" \
         -H "Content-Type: application/json" \
-        -d '{"identity":"admin@example.com","secret":"changeme"}' 2>/dev/null || true)
+        -d "${NPM_AUTH_PAYLOAD}" 2>/dev/null || true)
     NPM_TOKEN=$(echo "${AUTH_RESPONSE}" | python3 -c \
         "import sys,json; d=json.load(sys.stdin); print(d.get('token',''))" 2>/dev/null \
         || true)
@@ -210,6 +218,7 @@ done
 echo "Authenticating with NPM API..."
 if [ -z "${NPM_TOKEN}" ]; then
     echo "FAIL: Cannot authenticate with NPM API after ${NPM_API_TIMEOUT}s."
+    echo "  Tried identity: ${NPM_ADMIN_EMAIL}"
     echo "  Last response: ${AUTH_RESPONSE}"
     docker logs "${CONTAINER_NAME}" --tail 50 || true
     exit 1
