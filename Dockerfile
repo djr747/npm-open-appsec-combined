@@ -1,4 +1,10 @@
 ARG NPM_TAG=latest
+ARG CERT_PRUNE_VERSION=v0.0.0-20230515051954-ab01c6e0bab5
+
+FROM golang:1.24-bookworm AS cert-prune-builder
+ARG CERT_PRUNE_VERSION
+ENV CGO_ENABLED=0
+RUN go install github.com/axllent/cert-prune@${CERT_PRUNE_VERSION}
 
 FROM jc21/nginx-proxy-manager:${NPM_TAG} AS attachment-builder
 
@@ -121,6 +127,7 @@ COPY --from=attachment-builder /tmp/build_out/lib/libosrc_shmem_ipc.so /usr/lib/
 COPY --from=attachment-builder /tmp/attachment-commit /etc/openappsec-attachment.commit
 COPY --from=appsec-installers /nano-service-installers /nano-service-installers
 COPY --from=appsec-installers /tmp/openappsec-commit /etc/openappsec-core.commit
+COPY --from=cert-prune-builder /go/bin/cert-prune /usr/bin/cert-prune
 COPY scripts/start-openappsec-agent.sh /usr/local/bin/start-openappsec-agent
 
 RUN grep -q '^include /etc/nginx/modules/\*\.conf;$' /etc/nginx/nginx.conf \
