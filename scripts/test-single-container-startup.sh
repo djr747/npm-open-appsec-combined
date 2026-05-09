@@ -296,11 +296,11 @@ else
             exit 1
         else
             POLICY_LOADED="$(docker exec "${CONTAINER_NAME}" sh -c \
-                'grep -q "Web AppSec Policy Loaded Successfully" /var/log/nano_agent/cp-nano-http-transaction-handler.log1 && echo 1 || echo 0')"
+                'grep -q "Web AppSec Policy Loaded Successfully" /var/log/nano_agent/cp-nano-http-transaction-handler.log* 2>/dev/null && echo 1 || echo 0')"
             ATTACH_REGISTERED="$(docker exec "${CONTAINER_NAME}" sh -c \
-                'grep -q "Successfully registered attachment" /var/log/nano_agent/cp-nano-http-transaction-handler.dbg1 && echo 1 || echo 0')"
+                'grep -q "Successfully registered attachment" /var/log/nano_agent/cp-nano-http-transaction-handler.dbg* 2>/dev/null && echo 1 || echo 0')"
             if [ "${ADV_MODEL_PRESENT}" = "0" ] && [ "${POLICY_LOADED}" = "1" ] && [ "${ATTACH_REGISTERED}" = "1" ]; then
-                echo "PASS: open-appsec policy/attachment pipeline is active (local model assets missing; attack remained HTTP ${ATTACK_STATUS})"
+                echo "PASS: policy enforcement signals verified (SQLi blocking unavailable without local model assets; attack remained HTTP ${ATTACK_STATUS})"
             else
                 echo "FAIL: open-appsec did not block SQL injection after ${WAF_TIMEOUT}s (last HTTP ${ATTACK_STATUS}, expected 403)"
                 echo "  Verify scripts/test-appsec-policy.yaml has mode: prevent and override-mode: prevent."
