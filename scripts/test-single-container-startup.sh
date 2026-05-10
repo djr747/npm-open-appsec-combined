@@ -74,9 +74,8 @@ docker network create "${TEST_NETWORK}" >/dev/null
 # engine and block attacks.  The architecture mirrors the NPMplus reference:
 #   https://github.com/ZoeyVid/NPMplus/blob/develop/compose.yaml#L169-L237
 #
-# smartsync-shared-files shares the IPC namespace of the main container (added
-# after the main container starts) so the agent can write learning data to the
-# shared memory region that shared-files manages.
+# Keep all containers on default private IPC namespaces so the test remains
+# rootless-compatible (no host IPC and no cross-container IPC sharing).
 # ---------------------------------------------------------------------------
 echo "Starting main NPM container..."
 docker run -d --name "${CONTAINER_NAME}" \
@@ -99,10 +98,9 @@ docker run -d --name "${CONTAINER_NAME}" \
     -p 18443:443 \
     "${IMAGE_NAME}" >/dev/null
 
-echo "Starting smartsync-shared-files sidecar (ipc from main container)..."
+echo "Starting smartsync-shared-files sidecar..."
 docker run -d --name "${SHARED_FILES_NAME}" \
     --network "${TEST_NETWORK}" \
-    --ipc "container:${CONTAINER_NAME}" \
     -e TZ=UTC \
     -u root \
     -v "${TEST_TMP_DIR}/appsec/storage:/db" \
@@ -291,8 +289,6 @@ else
         exit 1
     else
         echo "  Proxy host id=${HOST_ID}. Polling for nginx config reload and open-appsec policy enforcement..."
-        ADVANCED_MODEL_PRESENT="$(docker exec "${CONTAINER_NAME}" sh -c \
-            'test -f /etc/cp/conf/waap/cp-ab.js && test -f /etc/cp/conf/waap/cp-csrf.js && echo 1 || echo 0')"
 
         # The prevent-mode policy was loaded at agent startup.  Once the proxy host
         # is active (nginx reloaded) the agent's attachment should start blocking
@@ -336,23 +332,15 @@ else
                 'grep -q "Web AppSec Policy Loaded Successfully" /var/log/nano_agent/cp-nano-http-transaction-handler.log* 2>/dev/null && echo 1 || echo 0')"
             ATTACH_REGISTERED="$(docker exec "${CONTAINER_NAME}" sh -c \
                 'grep -q "Successfully registered attachment" /var/log/nano_agent/cp-nano-http-transaction-handler.dbg* 2>/dev/null && echo 1 || echo 0')"
-            # In local-policy mode without advanced model assets, SQLi signatures may be unavailable.
-            # In that case we treat "policy loaded + attachment registered + benign traffic allowed"
-            # as a valid enforcement-pipeline pass condition.
-            if [ "${ADVANCED_MODEL_PRESENT}" = "0" ] && [ "${POLICY_LOADED}" = "1" ] && [ "${ATTACH_REGISTERED}" = "1" ]; then
-                echo "PASS: policy enforcement signals verified (SQLi blocking unavailable without local model assets; attack remained HTTP ${ATTACK_STATUS})"
-            else
-                echo "FAIL: open-appsec did not block SQL injection after ${WAF_TIMEOUT}s (last HTTP ${ATTACK_STATUS}, expected 403)"
-                echo "  Verify scripts/test-appsec-policy.yaml has mode: prevent and override-mode: prevent."
-                echo "  advanced model assets present: ${ADVANCED_MODEL_PRESENT}"
-                echo "  policy loaded signal present: ${POLICY_LOADED}"
-                echo "  attachment registered signal present: ${ATTACH_REGISTERED}"
-                docker logs "${CONTAINER_NAME}" --tail 50 || true
-                echo "  --- open-appsec agent logs ---"
-                find "${TEST_TMP_DIR}/appsec/logs" -name "*.log" 2>/dev/null | sort | \
-                    while IFS= read -r f; do echo "  [${f##*/}]"; tail -n 40 "$f" 2>/dev/null || true; done
-                exit 1
-            fi
+            echo "FAIL: open-appsec did not block SQL injection after ${WAF_TIMEOUT}s (last HTTP ${ATTACK_STATUS}, expected 403)"
+            echo "  Verify scripts/test-appsec-policy.yaml has mode: prevent and override-mode: prevent."
+            echo "  policy loaded signal present: ${POLICY_LOADED}"
+            echo "  attachment registered signal present: ${ATTACH_REGISTERED}"
+            docker logs "${CONTAINER_NAME}" --tail 50 || true
+            echo "  --- open-appsec agent logs ---"
+            find "${TEST_TMP_DIR}/appsec/logs" -name "*.log" 2>/dev/null | sort | \
+                while IFS= read -r f; do echo "  [${f##*/}]"; tail -n 40 "$f" 2>/dev/null || true; done
+            exit 1
         fi
     fi
 fi
