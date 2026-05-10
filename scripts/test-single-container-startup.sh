@@ -17,19 +17,34 @@ IMAGE_NAME="${IMAGE_NAME:-local/npm-open-appsec:integration}"
 CONTAINER_NAME="npm-open-appsec-it"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-180}"
+TEST_ARTIFACTS_DIR="${TEST_ARTIFACTS_DIR:-${REPO_ROOT}/test-artifacts}"
+KEEP_TEST_ARTIFACTS="${KEEP_TEST_ARTIFACTS:-0}"
 CURL_ERROR_CODE="000"  # curl exit code placeholder when the request fails
 PUID=1000
 PGID=1000
 
-TEST_TMP_DIR="$(mktemp -d)"
+mkdir -p "${TEST_ARTIFACTS_DIR}"
+RUN_ARTIFACT_DIR="$(mktemp -d "${TEST_ARTIFACTS_DIR%/}/single-container-startup.XXXXXX")"
+TEST_TMP_DIR="${RUN_ARTIFACT_DIR}/volumes"
+
+collect_artifacts() {
+    docker logs "${CONTAINER_NAME}" > "${RUN_ARTIFACT_DIR}/docker.log" 2>&1 || true
+    docker inspect "${CONTAINER_NAME}" > "${RUN_ARTIFACT_DIR}/docker-inspect.json" 2>/dev/null || true
+}
 
 cleanup() {
+    collect_artifacts
     docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+    if [ "${KEEP_TEST_ARTIFACTS}" = "1" ]; then
+        echo "Test artifacts saved to ${RUN_ARTIFACT_DIR}"
+        return
+    fi
     # Container processes run as root inside and may create root-owned files on the
     # volume mounts. Use a privileged docker container to remove them if direct rm
     # fails, then clean up the empty temp directory.
     rm -rf "${TEST_TMP_DIR}" 2>/dev/null         || { docker run --rm -v "${TEST_TMP_DIR}:/mnt" --entrypoint sh alpine                  -c 'rm -rf /mnt/*' >/dev/null 2>&1 || true
              rm -rf "${TEST_TMP_DIR}" 2>/dev/null || true; }
+    rm -rf "${RUN_ARTIFACT_DIR}" 2>/dev/null || true
 }
 trap cleanup EXIT
 

@@ -24,4 +24,13 @@ jobs:
         env:
           IMAGE_NAME: local/npm-open-appsec:integration
           SKIP_BUILD: "1"
+          TEST_ARTIFACTS_DIR: ${{ github.workspace }}/test-artifacts
+          KEEP_TEST_ARTIFACTS: "1"
         run: ./scripts/test-single-container-startup.sh
+
+      - name: Upload integration test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-artifacts
+          path: test-artifacts

@@ -111,6 +111,9 @@ Local run:
 ./scripts/test-single-container-startup.sh
 ```
 
+By default, test artifacts are written under `./test-artifacts/` and cleaned up on success.
+Set `KEEP_TEST_ARTIFACTS=1` to retain them for debugging.
+
 The integration test builds the image, starts one container, and verifies:
 
 - open-appsec watchdog process is running
