@@ -293,8 +293,11 @@ the test.
 Local run:
 
 ```bash
-./scripts/test-single-container-startup.sh
+./tests/test-single-container-startup.sh
 ```
+
+The test auto-detects the local Docker platform (`linux/arm64` on Apple Silicon,
+`linux/amd64` on x86_64). Override with `DOCKER_PLATFORM=...` if needed.
 
 The integration test builds the image, starts one container, and verifies:
 
@@ -306,8 +309,16 @@ The integration test builds the image, starts one container, and verifies:
 - `node` (NPM backend) runs as configured `PUID` (non-root)
 - `/dev/shm/check-point` is present (intra-container shared memory, no IPC sharing needed)
 - Attachment commit file is present
-- open-appsec WAF blocks a high-confidence SQL injection with HTTP 403 (prevent-mode policy
-  loaded via `autoPolicyLoad=true`; proxy host configured via the NPM REST API)
+- open-appsec blocks a deterministic local-policy drop path with HTTP 403 (policy loaded via
+  `autoPolicyLoad=true`; proxy host configured via the NPM REST API)
+
+The open-appsec smartsync/shared-storage sidecars are not started by default. They are only
+needed when explicitly testing standalone learning/tuning behavior, not for static local-policy
+loading. To include them in a local run:
+
+```bash
+ENABLE_APPSEC_LEARNING_SIDECARS=1 ./tests/test-single-container-startup.sh
+```
 
 ## Example deployments
 

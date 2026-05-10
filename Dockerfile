@@ -4,7 +4,13 @@ ARG CERT_PRUNE_VERSION=v0.0.0-20230515051954-ab01c6e0bab5
 FROM golang:1.26-bookworm AS cert-prune-builder
 ARG CERT_PRUNE_VERSION
 ENV CGO_ENABLED=0
-RUN go install github.com/axllent/cert-prune@${CERT_PRUNE_VERSION}
+RUN go mod download github.com/axllent/cert-prune@${CERT_PRUNE_VERSION} \
+    && cp -a "$(go env GOPATH)/pkg/mod/github.com/axllent/cert-prune@${CERT_PRUNE_VERSION}" /tmp/cert-prune \
+    && chmod -R u+w /tmp/cert-prune \
+    && cd /tmp/cert-prune \
+    && go get github.com/sirupsen/logrus@v1.9.1 \
+    && go mod tidy \
+    && go build -trimpath -ldflags="-buildid=" -o /go/bin/cert-prune .
 
 FROM jc21/nginx-proxy-manager:${NPM_TAG} AS attachment-builder
 
@@ -50,6 +56,7 @@ RUN nginx -V &> /tmp/nginx.ver \
 FROM debian:bookworm-slim AS appsec-installers
 
 ARG OPENAPPSEC_REF=main
+ARG OPENAPPSEC_BUILD_JOBS=2
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -79,35 +86,58 @@ RUN git clone https://github.com/openappsec/openappsec.git /tmp/openappsec \
     && git checkout "${OPENAPPSEC_REF}" \
     && git rev-parse HEAD > /tmp/openappsec-commit \
     && cmake -DCMAKE_INSTALL_PREFIX=/tmp/openappsec-build . \
-    && make -j"$(nproc)" install \
-    && make -j"$(nproc)" package
+    && make -j"${OPENAPPSEC_BUILD_JOBS}" install \
+    && make -j"${OPENAPPSEC_BUILD_JOBS}" package
 
 RUN mkdir -p /nano-service-installers \
     && cp /tmp/openappsec-build/install-cp-nano-agent.sh /nano-service-installers/ \
     && cp /tmp/openappsec-build/install-cp-nano-attachment-registration-manager.sh /nano-service-installers/ \
     && cp /tmp/openappsec-build/install-cp-nano-agent-cache.sh /nano-service-installers/ \
-    && cp /tmp/openappsec-build/install-cp-nano-service-http-transaction-handler.sh /nano-service-installers/
+    && cp /tmp/openappsec-build/install-cp-nano-service-http-transaction-handler.sh /nano-service-installers/ \
+    && cp /tmp/openappsec-build/install-cp-nano-central-nginx-manager.sh /nano-service-installers/
 
 FROM jc21/nginx-proxy-manager:${NPM_TAG}
 
 # Apply all available security patches from the Debian 12 repository.
 # `apt-get -y upgrade` upgrades every installed package to the latest version
 # provided by the upstream repos, closing any CVEs that have been fixed there.
-# `jq` is intentionally purged because it is not needed at runtime in this image
-# and removing it reduces attack surface and package CVE exposure.
+# open-appsec local-policy loading shells through `/etc/cp/bin/yq eval <file> -o json`.
+# The installer-provided wrapper expects a Python yq package, but Debian's yq
+# package uses a different CLI dialect, so the startup script replaces it with a
+# small compatibility wrapper backed by PyYAML copied from the builder stage.
+# `jq` is still purged from the final image to avoid reintroducing its CVE surface.
 # Vulnerabilities that remain after this step have no available fix yet in
 # Debian 12 and will be resolved by the nightly rebuild once a fix is released.
 RUN DEBIAN_FRONTEND=noninteractive apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get -y upgrade -o Dpkg::Options::="--force-confold" \
+    && apt-get clean \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         -o Dpkg::Options::="--force-confold" \
         libicu72 \
+        liblzf1 \
         procps \
     && DEBIAN_FRONTEND=noninteractive apt-get purge -y --auto-remove jq \
     && rm -rf /tmp/openresty \
     && cd /app \
-    && npm install --omit=dev --no-audit --no-fund basic-ftp@5.3.0 \
-    && /opt/certbot/bin/pip install --no-cache-dir --upgrade "multipart>=1.3.1" \
+    && npm install --omit=dev --no-audit --no-fund \
+        basic-ftp@5.3.1 \
+        fast-uri@3.1.2 \
+        liquidjs@10.25.7 \
+        lodash@4.18.1 \
+        minimatch@3.1.4 \
+        path-to-regexp@8.4.2 \
+        picomatch@4.0.4 \
+    && npm install --prefix /app/node_modules/readdir-glob --omit=dev --no-audit --no-fund minimatch@5.1.8 \
+    && npm install --prefix /app/node_modules/archiver-utils --omit=dev --no-audit --no-fund minimatch@9.0.7 \
+    && npm pack --silent picomatch@4.0.4 --pack-destination /tmp \
+    && tar -xzf /tmp/picomatch-4.0.4.tgz --strip-components=1 -C /usr/lib/node_modules/npm/node_modules/picomatch \
+    && mkdir -p /usr/lib/node_modules/npm/node_modules/tinyglobby/node_modules/picomatch \
+    && tar -xzf /tmp/picomatch-4.0.4.tgz --strip-components=1 -C /usr/lib/node_modules/npm/node_modules/tinyglobby/node_modules/picomatch \
+    && rm -f /tmp/picomatch-4.0.4.tgz \
+    && /opt/certbot/bin/pip install --no-cache-dir --upgrade \
+        "multipart>=1.3.1" \
+        "pyOpenSSL>=26.0.0" \
+        "setuptools>=78.1.1" \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /usr/lib/nginx/modules /ext/appsec /etc/cp/conf /etc/cp/data /var/log/nano_agent /dev/shm/check-point \
@@ -128,6 +158,8 @@ COPY --from=attachment-builder /tmp/build_out/lib/libosrc_shmem_ipc.so /usr/lib/
 COPY --from=attachment-builder /tmp/attachment-commit /etc/openappsec-attachment.commit
 COPY --from=appsec-installers /nano-service-installers /nano-service-installers
 COPY --from=appsec-installers /tmp/openappsec-commit /etc/openappsec-core.commit
+COPY --from=appsec-installers /usr/lib/python3/dist-packages/yaml /usr/lib/python3/dist-packages/yaml
+COPY --from=appsec-installers /usr/lib/python3/dist-packages/_yaml /usr/lib/python3/dist-packages/_yaml
 COPY --from=cert-prune-builder /go/bin/cert-prune /usr/bin/cert-prune
 COPY scripts/start-openappsec-agent.sh /usr/local/bin/start-openappsec-agent
 

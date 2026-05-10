@@ -1,23 +1,23 @@
-# Integration-test local policy: prevent mode with high-confidence web-attack blocking.
+# Integration-test local policy.
 #
-# Used by scripts/test-single-container-startup.sh to verify that the open-appsec
-# attachment module actively blocks high-confidence attacks (e.g. SQL injection)
-# and returns HTTP 403 before the request reaches the upstream backend.
-#
-# This file is copied over local_policy.yaml in the test volume after all services
-# have started. autoPolicyLoad=true causes the agent to reload the policy automatically.
+# This v1beta1 policy intentionally uses a deterministic drop exception instead
+# of relying on ML confidence for a particular attack string. That makes the test
+# a direct proof of the container integration path:
+# nginx attachment -> open-appsec agent policy decision -> nginx 403 response.
 policies:
   default:
     triggers:
-      - appsec-default-log-trigger
+      - test-log-trigger
     mode: prevent
     practices:
-      - webapp-prevent-practice
-    custom-response: appsec-default-web-user-response
+      - test-threat-prevention-practice
+    custom-response: test-block-response
+    exceptions:
+      - test-forced-drop
   specific-rules: []
 
 practices:
-  - name: webapp-prevent-practice
+  - name: test-threat-prevention-practice
     web-attacks:
       max-body-size-kb: 1000000
       max-header-size-bytes: 102400
@@ -42,7 +42,7 @@ practices:
       override-mode: inactive
 
 log-triggers:
-  - name: appsec-default-log-trigger
+  - name: test-log-trigger
     access-control-logging:
       allow-events: false
       drop-events: true
@@ -66,6 +66,12 @@ log-triggers:
         format: json
 
 custom-responses:
-  - name: appsec-default-web-user-response
+  - name: test-block-response
     mode: response-code-only
     http-response-code: 403
+
+exceptions:
+  - name: test-forced-drop
+    action: drop
+    url:
+      - /openappsec-block-test

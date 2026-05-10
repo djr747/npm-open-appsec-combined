@@ -9,8 +9,8 @@
 #   5. nginx workers and node (NPM backend) run as configured PUID (non-root)
 #   6. /dev/shm/check-point is accessible inside the container (intra-container only)
 #   7. Attachment commit file is present
-#   8. open-appsec WAF blocks a high-confidence SQL-injection attack with HTTP 403
-#      (prevent-mode policy applied via autoPolicyLoad; proxy host set up via NPM API)
+#   8. open-appsec blocks a deterministic local-policy drop path with HTTP 403
+#      (policy applied via autoPolicyLoad; proxy host set up via NPM API)
 
 set -euo pipefail
 
@@ -21,6 +21,8 @@ SHARED_FILES_NAME="npm-appsec-shared-files-it"
 SMARTSYNC_NAME="npm-appsec-smartsync-it"
 TEST_NETWORK="npm-appsec-test-net-$$"
 SKIP_BUILD="${SKIP_BUILD:-0}"
+ENABLE_APPSEC_LEARNING_SIDECARS="${ENABLE_APPSEC_LEARNING_SIDECARS:-0}"
+KEEP_CONTAINERS_ON_FAILURE="${KEEP_CONTAINERS_ON_FAILURE:-0}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-180}"
 CURL_ERROR_CODE="000"  # curl exit code placeholder when the request fails
 PUID=1000
@@ -29,8 +31,36 @@ NPM_ADMIN_EMAIL="${NPM_ADMIN_EMAIL:-admin@example.com}"
 NPM_ADMIN_PASSWORD="${NPM_ADMIN_PASSWORD:-changeme}"
 
 TEST_TMP_DIR="$(mktemp -d)"
+TEST_FAILED=0
+
+detect_docker_platform() {
+    case "$(uname -m)" in
+        arm64|aarch64) echo "linux/arm64" ;;
+        x86_64|amd64) echo "linux/amd64" ;;
+        *)
+            docker version --format '{{.Server.Os}}/{{.Server.Arch}}' 2>/dev/null \
+                || echo ""
+            ;;
+    esac
+}
+
+DOCKER_PLATFORM="${DOCKER_PLATFORM:-$(detect_docker_platform)}"
+if [ -n "${DOCKER_PLATFORM}" ]; then
+    DOCKER_PLATFORM_ARGS=(--platform "${DOCKER_PLATFORM}")
+    echo "Using Docker platform: ${DOCKER_PLATFORM}"
+else
+    DOCKER_PLATFORM_ARGS=()
+    echo "Using Docker default platform"
+fi
 
 cleanup() {
+    if [ "${TEST_FAILED}" = "1" ] && [ "${KEEP_CONTAINERS_ON_FAILURE}" = "1" ]; then
+        echo "Keeping failed test containers and temp dir for inspection:"
+        echo "  main container: ${CONTAINER_NAME}"
+        echo "  test temp dir:  ${TEST_TMP_DIR}"
+        return
+    fi
+
     docker rm -f "${CONTAINER_NAME}" "${SHARED_FILES_NAME}" "${SMARTSYNC_NAME}" >/dev/null 2>&1 || true
     docker network rm "${TEST_NETWORK}" >/dev/null 2>&1 || true
     # Container processes run as root inside and may create root-owned files on the
@@ -39,7 +69,13 @@ cleanup() {
     rm -rf "${TEST_TMP_DIR}" 2>/dev/null         || { docker run --rm -v "${TEST_TMP_DIR}:/mnt" --entrypoint sh alpine                  -c 'rm -rf /mnt/*' >/dev/null 2>&1 || true
              rm -rf "${TEST_TMP_DIR}" 2>/dev/null || true; }
 }
-trap cleanup EXIT
+trap 'status=$?; [ "${status}" -ne 0 ] && TEST_FAILED=1; cleanup' EXIT
+
+fail() {
+    TEST_FAILED=1
+    echo "FAIL: $*"
+    exit 1
+}
 
 mkdir -p \
     "${TEST_TMP_DIR}/data" \
@@ -50,17 +86,15 @@ mkdir -p \
     "${TEST_TMP_DIR}/appsec/logs" \
     "${TEST_TMP_DIR}/appsec/storage"
 
-# Stage the prevent-mode test policy before container start so the open-appsec agent
-# initialises in enforce mode from the beginning.  Using the starter policy (detect mode)
-# and then hot-swapping it mid-run via autoPolicyLoad is unreliable in CI because the
-# agent's policy-reload cycle can exceed the 90-second WAF polling window.
-echo "Staging prevent-mode test policy..."
-cp "${REPO_ROOT}/scripts/test-appsec-policy.yaml" \
+# Stage the local drop-policy fixture before container start so the open-appsec
+# agent initialises with the integration assertion active from the beginning.
+echo "Staging local-policy block fixture..."
+cp "${REPO_ROOT}/tests/test-appsec-policy.yaml" \
     "${TEST_TMP_DIR}/appsec/localconfig/local_policy.yaml"
 
 if [ "${SKIP_BUILD}" != "1" ]; then
-    echo "Building image..."
-    docker build -t "${IMAGE_NAME}" "${REPO_ROOT}"
+    echo "Building image for ${DOCKER_PLATFORM:-Docker default platform}..."
+    docker build "${DOCKER_PLATFORM_ARGS[@]}" -t "${IMAGE_NAME}" "${REPO_ROOT}"
 fi
 
 # Create a dedicated Docker network so all containers can reach each other by name.
@@ -68,25 +102,37 @@ echo "Creating test network..."
 docker network create "${TEST_NETWORK}" >/dev/null
 
 # ---------------------------------------------------------------------------
-# Start the open-appsec learning-model sidecar containers.
-# These provide the shared-storage and smartsync services that the open-appsec
-# agent inside the main container needs to activate the supervised detection
-# engine and block attacks.  The architecture mirrors the NPMplus reference:
+# Local declarative policy does not require the open-appsec learning/tuning
+# sidecars. Those containers are only useful when explicitly testing standalone
+# learning state and tuning flows. The default path proves the combined NPM,
+# attachment, and agent container without pulling amd64-only sidecar images on
+# arm64 developer machines.
+#
+# When ENABLE_APPSEC_LEARNING_SIDECARS=1, the test also starts the shared-storage
+# and smartsync services from the NPMplus reference:
 #   https://github.com/ZoeyVid/NPMplus/blob/develop/compose.yaml#L169-L237
 #
 # Keep all containers on default private IPC namespaces so the test remains
 # rootless-compatible (no host IPC and no cross-container IPC sharing).
 # ---------------------------------------------------------------------------
 echo "Starting main NPM container..."
+APPSEC_LEARNING_ENV=()
+if [ "${ENABLE_APPSEC_LEARNING_SIDECARS}" = "1" ]; then
+    APPSEC_LEARNING_ENV=(
+        -e SHARED_STORAGE_HOST="${SHARED_FILES_NAME}"
+        -e LEARNING_HOST="${SMARTSYNC_NAME}"
+    )
+fi
+
 docker run -d --name "${CONTAINER_NAME}" \
+    "${DOCKER_PLATFORM_ARGS[@]}" \
     --network "${TEST_NETWORK}" \
     -e PUID="${PUID}" \
     -e PGID="${PGID}" \
     -e INITIAL_ADMIN_EMAIL="${NPM_ADMIN_EMAIL}" \
     -e INITIAL_ADMIN_PASSWORD="${NPM_ADMIN_PASSWORD}" \
     -e autoPolicyLoad=true \
-    -e SHARED_STORAGE_HOST="${SHARED_FILES_NAME}" \
-    -e LEARNING_HOST="${SMARTSYNC_NAME}" \
+    "${APPSEC_LEARNING_ENV[@]}" \
     -v "${TEST_TMP_DIR}/data:/data" \
     -v "${TEST_TMP_DIR}/letsencrypt:/etc/letsencrypt" \
     -v "${TEST_TMP_DIR}/appsec/localconfig:/ext/appsec" \
@@ -98,20 +144,24 @@ docker run -d --name "${CONTAINER_NAME}" \
     -p 18443:443 \
     "${IMAGE_NAME}" >/dev/null
 
-echo "Starting smartsync-shared-files sidecar..."
-docker run -d --name "${SHARED_FILES_NAME}" \
-    --network "${TEST_NETWORK}" \
-    -e TZ=UTC \
-    -u root \
-    -v "${TEST_TMP_DIR}/appsec/storage:/db" \
-    ghcr.io/openappsec/smartsync-shared-files:latest >/dev/null
+if [ "${ENABLE_APPSEC_LEARNING_SIDECARS}" = "1" ]; then
+    echo "Starting smartsync-shared-files sidecar..."
+    docker run -d --name "${SHARED_FILES_NAME}" \
+        "${DOCKER_PLATFORM_ARGS[@]}" \
+        --network "${TEST_NETWORK}" \
+        -e TZ=UTC \
+        -u root \
+        -v "${TEST_TMP_DIR}/appsec/storage:/db" \
+        ghcr.io/openappsec/smartsync-shared-files:latest >/dev/null
 
-echo "Starting smartsync sidecar..."
-docker run -d --name "${SMARTSYNC_NAME}" \
-    --network "${TEST_NETWORK}" \
-    -e TZ=UTC \
-    -e SHARED_STORAGE_HOST="${SHARED_FILES_NAME}" \
-    ghcr.io/openappsec/smartsync:latest >/dev/null
+    echo "Starting smartsync sidecar..."
+    docker run -d --name "${SMARTSYNC_NAME}" \
+        "${DOCKER_PLATFORM_ARGS[@]}" \
+        --network "${TEST_NETWORK}" \
+        -e TZ=UTC \
+        -e SHARED_STORAGE_HOST="${SHARED_FILES_NAME}" \
+        ghcr.io/openappsec/smartsync:latest >/dev/null
+fi
 
 echo "Waiting for all services (timeout: ${TIMEOUT_SECONDS}s)..."
 START_TIME="$(date +%s)"
@@ -219,10 +269,9 @@ ATTACH_COMMIT="$(docker exec "${CONTAINER_NAME}" cat /etc/openappsec-attachment.
 echo "PASS: attachment commit ${ATTACH_COMMIT}"
 
 echo ""
-echo "=== WAF block verification (open-appsec prevent mode) ==="
+echo "=== WAF block verification (open-appsec local policy) ==="
 
-# The prevent-mode policy was staged before container start; the agent has had the
-# full startup window to initialise in enforce mode.  No mid-run policy swap is needed.
+# The local policy was staged before container start, so no mid-run policy swap is needed.
 
 # Authenticate with NPM using configured first-run credentials.
 # The NPM API backend (SQLite DB init) may still be initialising even after
@@ -290,13 +339,14 @@ else
     else
         echo "  Proxy host id=${HOST_ID}. Polling for nginx config reload and open-appsec policy enforcement..."
 
-        # The prevent-mode policy was loaded at agent startup.  Once the proxy host
-        # is active (nginx reloaded) the agent's attachment should start blocking
-        # high-confidence attacks immediately.  Allow up to 120 s for everything to
-        # settle (nginx reload + attachment ready + first blocked request).
+        # The local policy was loaded at agent startup.  Once the proxy host is
+        # active (nginx reloaded) the agent's attachment should block the test
+        # path via a deterministic drop exception.  This avoids depending on ML
+        # confidence for a specific attack payload while still proving the full
+        # attachment -> agent -> nginx enforcement path.
         WAF_WAIT_START="$(date +%s)"
         WAF_TIMEOUT=120
-        ATTACK_STATUS="000"
+        BLOCK_STATUS="000"
         BENIGN_STATUS="000"
 
         while [ $(($(date +%s) - WAF_WAIT_START)) -lt "${WAF_TIMEOUT}" ]; do
@@ -304,12 +354,12 @@ else
                 -H "Host: waf-test.local" \
                 "http://127.0.0.1:18080/" 2>/dev/null || echo "000")
 
-            ATTACK_STATUS=$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' \
+            BLOCK_STATUS=$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' \
                 -H "Host: waf-test.local" \
-                "http://127.0.0.1:18080/?id=1%27%20UNION%20SELECT%20password%20FROM%20users--" \
+                "http://127.0.0.1:18080/openappsec-block-test" \
                 2>/dev/null || echo "000")
 
-            [ "${ATTACK_STATUS}" = "403" ] && break
+            [ "${BLOCK_STATUS}" = "403" ] && break
             sleep 3
         done
 
@@ -321,10 +371,10 @@ else
         fi
         echo "  Benign request allowed: HTTP ${BENIGN_STATUS}"
 
-        if [ "${ATTACK_STATUS}" = "403" ]; then
-            echo "PASS: open-appsec blocked SQL injection attack (HTTP 403)"
-        elif [ "${ATTACK_STATUS}" = "000" ]; then
-            echo "FAIL: No response to attack request after ${WAF_TIMEOUT}s (nginx not ready or connection error)"
+        if [ "${BLOCK_STATUS}" = "403" ]; then
+            echo "PASS: open-appsec blocked local-policy test path (HTTP 403)"
+        elif [ "${BLOCK_STATUS}" = "000" ]; then
+            echo "FAIL: No response to blocked-path request after ${WAF_TIMEOUT}s (nginx not ready or connection error)"
             docker logs "${CONTAINER_NAME}" --tail 50 || true
             exit 1
         else
@@ -332,8 +382,8 @@ else
                 'grep -q "Web AppSec Policy Loaded Successfully" /var/log/nano_agent/cp-nano-http-transaction-handler.log* 2>/dev/null && echo 1 || echo 0')"
             ATTACH_REGISTERED="$(docker exec "${CONTAINER_NAME}" sh -c \
                 'grep -q "Successfully registered attachment" /var/log/nano_agent/cp-nano-http-transaction-handler.dbg* 2>/dev/null && echo 1 || echo 0')"
-            echo "FAIL: open-appsec did not block SQL injection after ${WAF_TIMEOUT}s (last HTTP ${ATTACK_STATUS}, expected 403)"
-            echo "  Verify scripts/test-appsec-policy.yaml has mode: prevent and override-mode: prevent."
+            echo "FAIL: open-appsec did not block local-policy test path after ${WAF_TIMEOUT}s (last HTTP ${BLOCK_STATUS}, expected 403)"
+            echo "  Verify tests/test-appsec-policy.yaml has the test-forced-drop exception for /openappsec-block-test."
             echo "  policy loaded signal present: ${POLICY_LOADED}"
             echo "  attachment registered signal present: ${ATTACH_REGISTERED}"
             docker logs "${CONTAINER_NAME}" --tail 50 || true

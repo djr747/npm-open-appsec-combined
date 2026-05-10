@@ -24,8 +24,35 @@ install_agent_if_needed() {
     /nano-service-installers/install-cp-nano-attachment-registration-manager.sh --install
     /nano-service-installers/install-cp-nano-agent-cache.sh --install
     /nano-service-installers/install-cp-nano-service-http-transaction-handler.sh --install
+    /nano-service-installers/install-cp-nano-central-nginx-manager.sh --install
 
     touch "${INSTALL_MARKER}"
+}
+
+install_yq_compat_wrapper() {
+    cat > /etc/cp/bin/yq <<'PYTHON'
+#!/usr/bin/python3
+import json
+import sys
+
+import yaml
+
+
+def main():
+    args = sys.argv[1:]
+    if len(args) == 4 and args[0] == "eval" and args[2] == "-o" and args[3] == "json":
+        with open(args[1], "r", encoding="utf-8") as policy_file:
+            print(json.dumps(yaml.safe_load(policy_file)))
+        return 0
+
+    print("unsupported yq compatibility invocation: " + " ".join(args), file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+PYTHON
+    chmod 700 /etc/cp/bin/yq
 }
 
 istrue() {
@@ -182,6 +209,7 @@ cleanup() {
 trap cleanup SIGTERM SIGINT
 
 install_agent_if_needed
+install_yq_compat_wrapper
 
 if [ -f "${ADVANCED_MODEL}" ]; then
     mkdir -p /etc/cp/conf/waap

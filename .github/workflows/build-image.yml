@@ -194,7 +194,7 @@ jobs:
         env:
           IMAGE_NAME: local/npm-open-appsec:integration
           SKIP_BUILD: "1"
-        run: ./scripts/test-single-container-startup.sh
+        run: ./tests/test-single-container-startup.sh
 
   # Assemble and tag a multi-arch manifest from the amd64 and arm64 digests.
   merge:
