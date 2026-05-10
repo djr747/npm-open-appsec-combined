@@ -2,6 +2,9 @@ name: Build open-appsec NPM image
 
 on:
   pull_request:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       npm_tag:
@@ -10,6 +13,10 @@ on:
         type: string
       attachment_ref:
         description: "openappsec/attachment git ref (defaults to main)"
+        required: false
+        type: string
+      openappsec_ref:
+        description: "openappsec/openappsec git ref (defaults to main)"
         required: false
         type: string
   schedule:
@@ -22,6 +29,9 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Registry and image name used by all jobs.
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
   resolve:
@@ -31,12 +41,16 @@ jobs:
       attachment_ref: ${{ steps.meta.outputs.attachment_ref }}
       attachment_sha: ${{ steps.meta.outputs.attachment_sha }}
       attachment_short_sha: ${{ steps.meta.outputs.attachment_short_sha }}
+      openappsec_ref: ${{ steps.meta.outputs.openappsec_ref }}
+      openappsec_sha: ${{ steps.meta.outputs.openappsec_sha }}
+      openappsec_short_sha: ${{ steps.meta.outputs.openappsec_short_sha }}
     steps:
       - name: Resolve upstream versions
         id: meta
         env:
           INPUT_NPM_TAG: ${{ inputs.npm_tag }}
           INPUT_ATTACHMENT_REF: ${{ inputs.attachment_ref }}
+          INPUT_OPENAPPSEC_REF: ${{ inputs.openappsec_ref }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -64,46 +78,160 @@ jobs:
             exit 1
           fi
 
+          openappsec_ref="${INPUT_OPENAPPSEC_REF:-main}"
+          openappsec_sha="$(git ls-remote https://github.com/openappsec/openappsec.git "${openappsec_ref}" | awk '{print $1}' | head -n1)"
+          if [ -z "${openappsec_sha}" ]; then
+            echo "Unable to resolve openappsec/openappsec ref: ${openappsec_ref}" >&2
+            exit 1
+          fi
+
           {
             echo "npm_tag=${npm_tag}"
             echo "attachment_ref=${attachment_ref}"
             echo "attachment_sha=${attachment_sha}"
             echo "attachment_short_sha=${attachment_sha:0:12}"
+            echo "openappsec_ref=${openappsec_ref}"
+            echo "openappsec_sha=${openappsec_sha}"
+            echo "openappsec_short_sha=${openappsec_sha:0:12}"
           } >> "${GITHUB_OUTPUT}"
 
-  build:
+  # Build the amd64 image slice on a native amd64 runner (no emulation).
+  build-amd64:
     runs-on: ubuntu-latest
     needs: resolve
     outputs:
-      # Primary image ref passed to the scan job (first tag from metadata-action).
-      image_ref: ${{ steps.image_ref.outputs.image_ref }}
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      # QEMU lets the amd64 runner build and run arm64 binaries via emulation.
-      # Note: arm64 compilation (nginx source + cmake) is significantly slower
-      # under QEMU than on native hardware.
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build metadata
-        id: docker_meta
-        uses: docker/metadata-action@v5
+      - name: Build amd64 image and push by digest
+        id: build
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
-          images: ghcr.io/${{ github.repository }}
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          # Push the image indexed only by its content digest (no tags yet).
+          # The merge job combines the per-platform digests into a multi-arch manifest.
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            NPM_TAG=${{ needs.resolve.outputs.npm_tag }}
+            ATTACHMENT_REF=${{ needs.resolve.outputs.attachment_ref }}
+            OPENAPPSEC_REF=${{ needs.resolve.outputs.openappsec_ref }}
+
+  # Build the arm64 image slice on a native arm64 runner.
+  build-arm64:
+    runs-on: ubuntu-24.04-arm
+    needs: resolve
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Login to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build arm64 image and push by digest
+        id: build
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/arm64
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            NPM_TAG=${{ needs.resolve.outputs.npm_tag }}
+            ATTACHMENT_REF=${{ needs.resolve.outputs.attachment_ref }}
+            OPENAPPSEC_REF=${{ needs.resolve.outputs.openappsec_ref }}
+
+  # Run the integration test against the already-built amd64 image slice before
+  # assembling the multi-arch manifest. Pull the image by its content digest
+  # (produced by the build-amd64 job) and hand it to the existing test script
+  # with SKIP_BUILD=1 to avoid a second full image build.
+  #
+  # Skipped on nightly (schedule) builds and on direct pushes to main, because
+  # those events follow a PR that already ran the test.
+  integrate:
+    runs-on: ubuntu-latest
+    needs: [resolve, build-amd64]
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Login to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull amd64 image by digest and tag for integration test
+        run: |
+          docker pull "${{ env.IMAGE_NAME }}@${{ needs.build-amd64.outputs.digest }}"
+          docker tag  "${{ env.IMAGE_NAME }}@${{ needs.build-amd64.outputs.digest }}" local/npm-open-appsec:integration
+
+      - name: Run single-container startup integration test
+        env:
+          IMAGE_NAME: local/npm-open-appsec:integration
+          SKIP_BUILD: "1"
+        run: ./tests/test-single-container-startup.sh
+
+  # Assemble and tag a multi-arch manifest from the amd64 and arm64 digests.
+  merge:
+    runs-on: ubuntu-latest
+    needs: [resolve, build-amd64, build-arm64, integrate]
+    # Always run this job when all build jobs succeeded, even when the integrate
+    # job was skipped (schedule or push-to-main events skip integrate).
+    if: |
+      always() &&
+      needs.resolve.result    == 'success' &&
+      needs.build-amd64.result == 'success' &&
+      needs.build-arm64.result == 'success' &&
+      (needs.integrate.result == 'success' || needs.integrate.result == 'skipped')
+    outputs:
+      image_ref: ${{ steps.image_ref.outputs.image_ref }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Login to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build metadata (tags + labels for the merged manifest)
+        id: docker_meta
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
+        with:
+          images: ${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=pr
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && github.ref_name == 'main' }}
             type=raw,value=${{ needs.resolve.outputs.npm_tag }},enable=${{ github.event_name != 'pull_request' }}
             type=raw,value=${{ needs.resolve.outputs.npm_tag }}-oas-${{ needs.resolve.outputs.attachment_short_sha }},enable=${{ github.event_name != 'pull_request' }}
             type=raw,value=nightly,enable=${{ github.event_name == 'schedule' }}
@@ -112,19 +240,26 @@ jobs:
             org.opencontainers.image.version=${{ needs.resolve.outputs.npm_tag }}-oas-${{ needs.resolve.outputs.attachment_short_sha }}
             io.openappsec.attachment.ref=${{ needs.resolve.outputs.attachment_ref }}
             io.openappsec.attachment.sha=${{ needs.resolve.outputs.attachment_sha }}
+            io.openappsec.core.ref=${{ needs.resolve.outputs.openappsec_ref }}
+            io.openappsec.core.sha=${{ needs.resolve.outputs.openappsec_sha }}
 
-      - name: Build and push image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.docker_meta.outputs.tags }}
-          labels: ${{ steps.docker_meta.outputs.labels }}
-          build-args: |
-            NPM_TAG=${{ needs.resolve.outputs.npm_tag }}
-            ATTACHMENT_REF=${{ needs.resolve.outputs.attachment_ref }}
+      - name: Create and push multi-arch manifest
+        run: |
+          metadata_json='${{ steps.docker_meta.outputs.json }}'
+          [ -n "${metadata_json}" ] \
+            || { echo "::error::steps.docker_meta.outputs.json is empty"; exit 1; }
+          jq -e '.tags and (.tags | type == "array") and (.tags | length > 0)' <<< "${metadata_json}" > /dev/null \
+            || { echo "::error::Metadata JSON is missing a non-empty tags array"; exit 1; }
+
+          # Build the list of -t flags from metadata-action output (one tag per line).
+          TAG_FLAGS=$(jq -r '.tags | map("-t " + .) | join(" ")' <<< "${metadata_json}") \
+            || { echo "::error::Failed to parse tags from metadata"; exit 1; }
+
+          # imagetools create assembles a manifest list and tags it.
+          # shellcheck disable=SC2086
+          docker buildx imagetools create ${TAG_FLAGS} \
+            "${{ env.IMAGE_NAME }}@${{ needs.build-amd64.outputs.digest }}" \
+            "${{ env.IMAGE_NAME }}@${{ needs.build-arm64.outputs.digest }}"
 
       - name: Export primary image ref for scan
         id: image_ref
@@ -136,29 +271,74 @@ jobs:
 
   scan:
     runs-on: ubuntu-latest
-    needs: build
+    needs: merge
     steps:
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Checkout (for SARIF metadata upload context)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
       # Grype (anchore/scan-action) is fully free and requires no token or account.
-      # It scans the published image and writes results as SARIF for upload to the
-      # GitHub Code Scanning Security tab.
-      - name: Grype container scan
-        id: grype
-        uses: anchore/scan-action@v3
+      # Step 1: table output so findings are visible directly in the job log.
+      # Only fixable vulnerabilities are considered (GRYPE_ONLY_FIXED=true), and
+      # fail-build triggers on Critical severity only.
+      - name: Grype container scan (table — fail on critical fixable)
+        id: grype_table
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        env:
+          # Skip DB age validation on ephemeral runners to avoid false failures.
+          GRYPE_DB_VALIDATE_AGE: "false"
+          # Only fail on vulnerabilities that have a fix available.
+          GRYPE_ONLY_FIXED: "true"
         with:
-          image: ${{ needs.build.outputs.image_ref }}
-          severity-cutoff: high
+          image: ${{ needs.merge.outputs.image_ref }}
+          severity-cutoff: critical
+          output-format: table
+          cache-db: false
+          fail-build: true
+
+      # Step 2: SARIF output for GitHub Code Scanning. Runs even if the table
+      # step above failed (so Code Scanning always receives results).
+      - name: Grype container scan (SARIF — for Code Scanning upload)
+        id: grype
+        if: always()
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        env:
+          GRYPE_DB_VALIDATE_AGE: "false"
+          GRYPE_ONLY_FIXED: "true"
+        with:
+          image: ${{ needs.merge.outputs.image_ref }}
+          severity-cutoff: critical
           output-format: sarif
+          cache-db: false
           fail-build: false
 
+      - name: Validate generated SARIF
+        id: validate_sarif
+        if: always()
+        run: |
+          set -euo pipefail
+          sarif_path="${{ steps.grype.outputs.sarif }}"
+          if [ -z "${sarif_path}" ] || [ ! -f "${sarif_path}" ] || [ ! -s "${sarif_path}" ]; then
+            echo "::error::No SARIF output produced by Grype at '${sarif_path}'. Skipping upload."
+            echo "valid=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          if jq -e . "${sarif_path}" >/dev/null 2>&1; then
+            echo "valid=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "::warning::Invalid SARIF JSON at '${sarif_path}'. Skipping upload."
+            echo "valid=false" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Upload Grype SARIF to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@v3
+        if: always() && steps.validate_sarif.outputs.valid == 'true'
+        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
         with:
           sarif_file: ${{ steps.grype.outputs.sarif }}
         continue-on-error: true
