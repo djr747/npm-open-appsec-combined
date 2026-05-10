@@ -17,6 +17,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_NAME="${IMAGE_NAME:-local/npm-open-appsec:integration}"
 CONTAINER_NAME="npm-open-appsec-it"
+SHARED_FILES_NAME="npm-appsec-shared-files-it"
+SMARTSYNC_NAME="npm-appsec-smartsync-it"
+TEST_NETWORK="npm-appsec-test-net-$$"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-180}"
 CURL_ERROR_CODE="000"  # curl exit code placeholder when the request fails
@@ -28,7 +31,8 @@ NPM_ADMIN_PASSWORD="${NPM_ADMIN_PASSWORD:-changeme}"
 TEST_TMP_DIR="$(mktemp -d)"
 
 cleanup() {
-    docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+    docker rm -f "${CONTAINER_NAME}" "${SHARED_FILES_NAME}" "${SMARTSYNC_NAME}" >/dev/null 2>&1 || true
+    docker network rm "${TEST_NETWORK}" >/dev/null 2>&1 || true
     # Container processes run as root inside and may create root-owned files on the
     # volume mounts. Use a privileged docker container to remove them if direct rm
     # fails, then clean up the empty temp directory.
@@ -43,7 +47,8 @@ mkdir -p \
     "${TEST_TMP_DIR}/appsec/localconfig" \
     "${TEST_TMP_DIR}/appsec/conf" \
     "${TEST_TMP_DIR}/appsec/data" \
-    "${TEST_TMP_DIR}/appsec/logs"
+    "${TEST_TMP_DIR}/appsec/logs" \
+    "${TEST_TMP_DIR}/appsec/storage"
 
 # Stage the prevent-mode test policy before container start so the open-appsec agent
 # initialises in enforce mode from the beginning.  Using the starter policy (detect mode)
@@ -58,15 +63,31 @@ if [ "${SKIP_BUILD}" != "1" ]; then
     docker build -t "${IMAGE_NAME}" "${REPO_ROOT}"
 fi
 
-# Run in local-policy mode (no AGENT_TOKEN). Uses the container's own private
-# IPC namespace — no --ipc flag, no --privileged needed.
-echo "Starting container in local-policy mode..."
+# Create a dedicated Docker network so all containers can reach each other by name.
+echo "Creating test network..."
+docker network create "${TEST_NETWORK}" >/dev/null
+
+# ---------------------------------------------------------------------------
+# Start the open-appsec learning-model sidecar containers.
+# These provide the shared-storage and smartsync services that the open-appsec
+# agent inside the main container needs to activate the supervised detection
+# engine and block attacks.  The architecture mirrors the NPMplus reference:
+#   https://github.com/ZoeyVid/NPMplus/blob/develop/compose.yaml#L169-L237
+#
+# smartsync-shared-files shares the IPC namespace of the main container (added
+# after the main container starts) so the agent can write learning data to the
+# shared memory region that shared-files manages.
+# ---------------------------------------------------------------------------
+echo "Starting main NPM container..."
 docker run -d --name "${CONTAINER_NAME}" \
+    --network "${TEST_NETWORK}" \
     -e PUID="${PUID}" \
     -e PGID="${PGID}" \
     -e INITIAL_ADMIN_EMAIL="${NPM_ADMIN_EMAIL}" \
     -e INITIAL_ADMIN_PASSWORD="${NPM_ADMIN_PASSWORD}" \
     -e autoPolicyLoad=true \
+    -e SHARED_STORAGE_HOST="${SHARED_FILES_NAME}" \
+    -e LEARNING_HOST="${SMARTSYNC_NAME}" \
     -v "${TEST_TMP_DIR}/data:/data" \
     -v "${TEST_TMP_DIR}/letsencrypt:/etc/letsencrypt" \
     -v "${TEST_TMP_DIR}/appsec/localconfig:/ext/appsec" \
@@ -77,6 +98,22 @@ docker run -d --name "${CONTAINER_NAME}" \
     -p 18081:81 \
     -p 18443:443 \
     "${IMAGE_NAME}" >/dev/null
+
+echo "Starting smartsync-shared-files sidecar (ipc from main container)..."
+docker run -d --name "${SHARED_FILES_NAME}" \
+    --network "${TEST_NETWORK}" \
+    --ipc "container:${CONTAINER_NAME}" \
+    -e TZ=UTC \
+    -u root \
+    -v "${TEST_TMP_DIR}/appsec/storage:/db" \
+    ghcr.io/openappsec/smartsync-shared-files:latest >/dev/null
+
+echo "Starting smartsync sidecar..."
+docker run -d --name "${SMARTSYNC_NAME}" \
+    --network "${TEST_NETWORK}" \
+    -e TZ=UTC \
+    -e SHARED_STORAGE_HOST="${SHARED_FILES_NAME}" \
+    ghcr.io/openappsec/smartsync:latest >/dev/null
 
 echo "Waiting for all services (timeout: ${TIMEOUT_SECONDS}s)..."
 START_TIME="$(date +%s)"
