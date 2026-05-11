@@ -1,7 +1,7 @@
 services:
   npm-open-appsec:
-    # Set IMAGE_REPOSITORY (via .env or export) to your GHCR owner/repo path.
-    image: ghcr.io/${IMAGE_REPOSITORY:-djr747/npm-open-appsec-combined}:${NPM_IMAGE_TAG:-latest}
+    # Set IMAGE_REPOSITORY (via .env or export) to the full GHCR image reference.
+    image: ${IMAGE_REPOSITORY:-ghcr.io/djr747/npm-open-appsec-combined}:${NPM_IMAGE_TAG:-latest}
     container_name: npm-open-appsec
     restart: unless-stopped
     environment:
@@ -15,24 +15,24 @@ services:
       # needed for this setup. Those are only required for the unsupervised local-policy ML
       # suggestion loop (adaptive tuning without a cloud backend). A static local_policy.yaml
       # with autoPolicyLoad gives full WAF enforcement without them. If you later want the ML
-      # tuning loop, refer to the NPMplus compose.yaml for the full optional stack.
+      # tuning loop, refer to the NPMplus compose.yaml for the full optional setup.
     ports:
       - "80:80"
       - "81:81"
       - "443:443"
     volumes:
-      - ./data:/data
-      - ./letsencrypt:/etc/letsencrypt
-      # Place local_policy.yaml here before starting the container.
+      - /opt/npm/data:/data
+      - /opt/npm/letsencrypt:/etc/letsencrypt
+      # Place local_policy.yaml under /opt/openappsec/localconfig before starting the container.
       # Download a starter file:
       #   curl -fsSL https://raw.githubusercontent.com/openappsec/open-appsec-npm/main/deployment/local_policy.yaml \
-      #        -o ./appsec/localconfig/local_policy.yaml
-      - ./appsec/localconfig:/ext/appsec
-      - ./appsec/conf:/etc/cp/conf
-      - ./appsec/data:/etc/cp/data
-      - ./appsec/logs:/var/log/nano_agent
+      #        -o /opt/openappsec/localconfig/local_policy.yaml
+      - /opt/openappsec/localconfig:/ext/appsec
+      - /opt/openappsec/conf:/etc/cp/conf
+      - /opt/openappsec/data:/etc/cp/data
+      - /opt/openappsec/logs:/var/log/nano_agent
       # Optional: pre-trained advanced ML model for improved detection accuracy.
       # Download open-appsec-advanced-model.tgz from the open-appsec GitHub releases
       # and place it at the host path below before starting the container.
       # The startup script automatically extracts it into /etc/cp/conf/waap.
-      # - ./appsec/open-appsec-advanced-model.tgz:/advanced-model/open-appsec-advanced-model.tgz
+      # - /opt/openappsec/open-appsec-advanced-model.tgz:/advanced-model/open-appsec-advanced-model.tgz

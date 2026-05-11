@@ -1,16 +1,16 @@
 services:
   npm-open-appsec:
-    # Set IMAGE_REPOSITORY (via .env or export) to your GHCR owner/repo path.
-    image: ghcr.io/${IMAGE_REPOSITORY:-djr747/npm-open-appsec-combined}:${NPM_IMAGE_TAG:-latest}
+    # Set IMAGE_REPOSITORY (via .env or export) to the full GHCR image reference.
+    image: ${IMAGE_REPOSITORY:-ghcr.io/djr747/npm-open-appsec-combined}:${NPM_IMAGE_TAG:-latest}
     container_name: npm-open-appsec
     restart: unless-stopped
     environment:
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
       # Cloud-managed policy: set APPSEC_AGENT_TOKEN.
-      # Local policy mode: leave APPSEC_AGENT_TOKEN empty and provide local_policy.yaml in ./appsec/localconfig.
+      # Local policy mode: leave APPSEC_AGENT_TOKEN empty and provide local_policy.yaml in /opt/openappsec/localconfig.
       - AGENT_TOKEN=${APPSEC_AGENT_TOKEN:-}
-      - user_email=${APPSEC_USER_EMAIL}
+      - user_email=${APPSEC_USER_EMAIL:-}
       # Optional:
       - https_proxy=${APPSEC_HTTPS_PROXY:-}
       - autoPolicyLoad=${APPSEC_AUTO_POLICY_LOAD:-true}
@@ -18,7 +18,7 @@ services:
       # This example includes the crowdsec service below. Set CROWDSEC_ENABLED=false
       # if you want to keep cloud-managed open-appsec only.
       - CROWDSEC_ENABLED=${CROWDSEC_ENABLED:-true}
-      - CROWDSEC_APPSEC_URL=crowdsec:7422
+      - CROWDSEC_APPSEC_URL=${CROWDSEC_APPSEC_URL:-crowdsec:7422}
       # Optional: comma-separated hostnames to exclude from CrowdSec checks.
       # On first start the startup script writes these into /data/nginx/custom/http_top.conf.
       # To edit later, manually update the generated map block in that file.
@@ -28,23 +28,22 @@ services:
       - "81:81"
       - "443:443"
     volumes:
-      - ./data:/data
-      - ./letsencrypt:/etc/letsencrypt
-      - ./appsec/localconfig:/ext/appsec
-      - ./appsec/conf:/etc/cp/conf
-      - ./appsec/data:/etc/cp/data
-      - ./appsec/logs:/var/log/nano_agent
+      - /opt/npm/data:/data
+      - /opt/npm/letsencrypt:/etc/letsencrypt
+      - /opt/openappsec/localconfig:/ext/appsec
+      - /opt/openappsec/conf:/etc/cp/conf
+      - /opt/openappsec/data:/etc/cp/data
+      - /opt/openappsec/logs:/var/log/nano_agent
       # Optional: pre-trained advanced ML model for improved detection accuracy.
       # Download open-appsec-advanced-model.tgz from the open-appsec GitHub releases
       # and place it at the host path below before starting the container.
       # The startup script automatically extracts it into /etc/cp/conf/waap.
-      # - ./appsec/open-appsec-advanced-model.tgz:/advanced-model/open-appsec-advanced-model.tgz
-    depends_on:
-      - crowdsec
-
+      - /opt/openappsec/open-appsec-advanced-model.tgz:/advanced-model/open-appsec-advanced-model.tgz
   crowdsec:
     image: docker.io/crowdsecurity/crowdsec:latest
     container_name: crowdsec
+    profiles:
+      - crowdsec
     restart: unless-stopped
     environment:
       - TZ=${TZ:-UTC}
@@ -57,9 +56,8 @@ services:
       - ENROLL_INSTANCE_NAME=${CROWDSEC_ENROLL_INSTANCE_NAME:-npm-open-appsec}
     volumes:
       # Keep CrowdSec state in a host path (same pattern as other services).
-      - ./crowdsec/data:/var/lib/crowdsec/data
-      # Declarative acquisition config (included in this repo at ./crowdsec/acquis.d).
-      # Run docker compose from the repository root so this relative path resolves correctly.
-      - ./crowdsec/acquis.d:/etc/crowdsec/acquis.d:ro
-      # NPM per-host access logs: /data/logs/proxy-host-*_access.log
-      - ./data/logs:/var/log/npm:ro
+      - /opt/crowdsec/data:/var/lib/crowdsec/data
+      # Declarative acquisition config (downloaded into /opt/crowdsec/acquis.d).
+      - /opt/crowdsec/acquis.d:/etc/crowdsec/acquis.d:ro
+      # NPM per-host access logs: /opt/npm/data/logs/proxy-host-*_access.log
+      - /opt/npm/data/logs:/var/log/npm:ro
