@@ -111,18 +111,66 @@ detect_compose_exec() {
     local uid
     uid="$(id -u "${CONTAINER_USER}")"
     local runtime_dir="/run/user/${uid}"
+    local user_home="/home/${CONTAINER_USER}"
+    local user_path="${user_home}/.local/bin:/usr/local/bin:/usr/bin:/bin"
+    local podman_compose
 
-    if sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="${runtime_dir}" podman compose version >/dev/null 2>&1; then
+    if sudo -u "${CONTAINER_USER}" -H env HOME="${user_home}" XDG_RUNTIME_DIR="${runtime_dir}" PATH="${user_path}" podman compose version >/dev/null 2>&1; then
         printf '%s compose' "$(command -v podman)"
         return 0
     fi
 
-    if command -v podman-compose >/dev/null 2>&1; then
-        printf '%s' "$(command -v podman-compose)"
+    podman_compose="$(sudo -u "${CONTAINER_USER}" -H env HOME="${user_home}" PATH="${user_path}" sh -lc 'command -v podman-compose' 2>/dev/null || true)"
+    if [ -n "${podman_compose}" ]; then
+        printf '%s' "${podman_compose}"
         return 0
     fi
 
     return 1
+}
+
+install_rocky_packages() {
+    local packages=(
+        podman
+        slirp4netns
+        fuse-overlayfs
+        curl
+        wget
+        python3
+        python3-pip
+        shadow-utils
+    )
+    sudo dnf install -y "${packages[@]}" >/dev/null
+
+    if ! command -v newuidmap >/dev/null 2>&1 || ! command -v newgidmap >/dev/null 2>&1; then
+        sudo dnf install -y shadow-utils-subid >/dev/null 2>&1 || true
+    fi
+
+    command -v newuidmap >/dev/null 2>&1 || die "newuidmap was not found after installing rootless Podman prerequisites."
+    command -v newgidmap >/dev/null 2>&1 || die "newgidmap was not found after installing rootless Podman prerequisites."
+}
+
+ensure_podman_compose() {
+    local user_home="/home/${CONTAINER_USER}"
+    local user_path="${user_home}/.local/bin:/usr/local/bin:/usr/bin:/bin"
+
+    if detect_compose_exec >/dev/null 2>&1; then
+        return 0
+    fi
+
+    info "podman-compose package was not available from the base install; checking optional distro package..."
+    sudo dnf install -y podman-compose >/dev/null 2>&1 || true
+    if detect_compose_exec >/dev/null 2>&1; then
+        return 0
+    fi
+
+    info "Installing podman-compose for ${CONTAINER_USER} with pip..."
+    if ! sudo -u "${CONTAINER_USER}" -H env HOME="${user_home}" PATH="${user_path}" python3 -m pip install --user --upgrade podman-compose >/dev/null 2>&1; then
+        sudo -u "${CONTAINER_USER}" -H env HOME="${user_home}" PATH="${user_path}" python3 -m pip install --user --break-system-packages --upgrade podman-compose >/dev/null \
+            || die "podman-compose could not be installed. Install a Compose provider manually, then rerun this script."
+    fi
+
+    detect_compose_exec >/dev/null 2>&1 || die "podman-compose installed, but it was not found in ${user_path}."
 }
 
 if [ "$(id -u)" -eq 0 ]; then
@@ -175,7 +223,7 @@ prompt "ADVANCED_MODEL_SOURCE" "Advanced model tarball URL or local path" "${ADV
 [ -n "${ADVANCED_MODEL_SOURCE}" ] || die "Advanced model source is required."
 
 info "Installing packages and enabling rootless Podman support..."
-sudo dnf install -y podman podman-compose uidmap slirp4netns fuse-overlayfs curl wget >/dev/null
+install_rocky_packages
 sudo install -d /etc/sysctl.d >/dev/null
 if ! sudo grep -Fxq 'net.ipv4.ip_unprivileged_port_start = 0' /etc/sysctl.d/99-openappsec-rootless-ports.conf 2>/dev/null; then
     printf 'net.ipv4.ip_unprivileged_port_start = 0\n' | sudo tee /etc/sysctl.d/99-openappsec-rootless-ports.conf >/dev/null
@@ -192,6 +240,7 @@ ensure_subid_range /etc/subgid
 PUID="$(id -u "${CONTAINER_USER}")"
 PGID="$(id -g "${CONTAINER_USER}")"
 sudo systemctl start "user@${PUID}.service" >/dev/null 2>&1 || true
+ensure_podman_compose
 
 info "Preparing private control directory under ${CONTROL_DIR}..."
 sudo install -d -o "${CONTAINER_USER}" -g "${CONTAINER_USER}" -m 0700 "${CONTROL_DIR}"

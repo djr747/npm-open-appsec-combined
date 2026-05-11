@@ -107,6 +107,44 @@ detect_compose_exec() {
     return 1
 }
 
+install_ubuntu_packages() {
+    local packages=(
+        docker.io
+        uidmap
+        slirp4netns
+        fuse-overlayfs
+        dbus-user-session
+        rootlesskit
+        curl
+        wget
+    )
+    sudo apt-get update -y >/dev/null
+    sudo apt-get install -y "${packages[@]}" >/dev/null
+
+    command -v newuidmap >/dev/null 2>&1 || die "newuidmap was not found after installing rootless Docker prerequisites."
+    command -v newgidmap >/dev/null 2>&1 || die "newgidmap was not found after installing rootless Docker prerequisites."
+}
+
+ensure_docker_compose() {
+    if detect_compose_exec >/dev/null 2>&1; then
+        return 0
+    fi
+
+    info "Docker Compose was not available from the base install; checking optional distro packages..."
+    sudo apt-get install -y docker-compose-v2 >/dev/null 2>&1 || true
+    if detect_compose_exec >/dev/null 2>&1; then
+        return 0
+    fi
+
+    sudo apt-get install -y docker-compose-plugin >/dev/null 2>&1 || true
+    if detect_compose_exec >/dev/null 2>&1; then
+        return 0
+    fi
+
+    sudo apt-get install -y docker-compose >/dev/null 2>&1 || true
+    detect_compose_exec >/dev/null 2>&1 || die "Docker Compose support was not found. Install docker compose or docker-compose, then rerun this script."
+}
+
 if [ "$(id -u)" -eq 0 ]; then
     die "Run this script as a sudo-capable admin user, not as root."
 fi
@@ -137,8 +175,7 @@ trap 'kill "${SUDO_KEEPALIVE_PID}" >/dev/null 2>&1 || true' EXIT
 load_previous_env
 
 info "Installing packages and enabling rootless Docker support..."
-sudo apt-get update -y >/dev/null
-sudo apt-get install -y docker.io docker-compose-v2 uidmap slirp4netns fuse-overlayfs dbus-user-session rootlesskit curl wget >/dev/null
+install_ubuntu_packages
 sudo systemctl disable --now docker.service docker.socket >/dev/null 2>&1 || true
 if ! sudo grep -Fxq 'net.ipv4.ip_unprivileged_port_start = 0' /etc/sysctl.d/99-openappsec-rootless-ports.conf 2>/dev/null; then
     printf 'net.ipv4.ip_unprivileged_port_start = 0\n' | sudo tee /etc/sysctl.d/99-openappsec-rootless-ports.conf >/dev/null
@@ -160,6 +197,7 @@ USER_RUNTIME_DIR="/run/user/${PUID}"
 USER_ENV=(HOME="${USER_HOME}" XDG_RUNTIME_DIR="${USER_RUNTIME_DIR}" DBUS_SESSION_BUS_ADDRESS="unix:path=${USER_RUNTIME_DIR}/bus" PATH="${USER_HOME}/bin:${USER_HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin")
 sudo systemctl start "user@${PUID}.service" >/dev/null 2>&1 || true
 sudo install -d -o "${CONTAINER_USER}" -g "${CONTAINER_USER}" -m 0700 "${USER_RUNTIME_DIR}"
+ensure_docker_compose
 
 info "Configuring rootless Docker for ${CONTAINER_USER}..."
 if ! sudo -u "${CONTAINER_USER}" -H env "${USER_ENV[@]}" DOCKER_HOST="unix://${USER_RUNTIME_DIR}/docker.sock" docker info >/dev/null 2>&1; then
