@@ -88,6 +88,13 @@ install_for_container_user() {
     fi
 }
 
+install_text_for_container_user() {
+    local src="$1"
+    local dest="$2"
+    local mode="$3"
+    sudo install -D -o "${CONTAINER_USER}" -g "${CONTAINER_USER}" -m "${mode}" "${src}" "${dest}"
+}
+
 write_env_var() {
     local key="$1"
     local value="$2"
@@ -312,9 +319,8 @@ rm -f "${ENV_TMP}"
 COMPOSE_EXEC="$(detect_compose_exec)" || die "Podman compose support was not found."
 UNIT_PATH="/home/${CONTAINER_USER}/.config/systemd/user/npm-open-appsec.service"
 info "Creating user service at ${UNIT_PATH}..."
-UNIT_TMP="${UNIT_PATH}.new"
-sudo install -D -o "${CONTAINER_USER}" -g "${CONTAINER_USER}" -m 0644 /dev/null "${UNIT_TMP}"
-sudo tee "${UNIT_TMP}" >/dev/null <<EOF
+UNIT_TMP="$(mktemp /tmp/npm-open-appsec-systemd.XXXXXX)"
+cat >"${UNIT_TMP}" <<EOF
 [Unit]
 Description=NPM open-appsec cloud-managed deployment (Rocky/RHEL 10, rootless Podman)
 After=network-online.target
@@ -332,16 +338,15 @@ TimeoutStopSec=0
 [Install]
 WantedBy=default.target
 EOF
-if ! sudo test -f "${UNIT_PATH}" || ! sudo cmp -s "${UNIT_PATH}" "${UNIT_TMP}" 2>/dev/null; then
-    sudo mv "${UNIT_TMP}" "${UNIT_PATH}"
-else
-    sudo rm -f "${UNIT_TMP}"
-fi
-sudo chown "${CONTAINER_USER}:${CONTAINER_USER}" "${UNIT_PATH}"
+install_text_for_container_user "${UNIT_TMP}" "${UNIT_PATH}" 0644
+rm -f "${UNIT_TMP}"
+sudo restorecon -F "${UNIT_PATH}" >/dev/null 2>&1 || true
 
 info "Starting the service..."
 sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user daemon-reload
-sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user enable --now npm-open-appsec.service
+sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" install -d -m 0755 "/home/${CONTAINER_USER}/.config/systemd/user/default.target.wants"
+sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" ln -sfn "../npm-open-appsec.service" "/home/${CONTAINER_USER}/.config/systemd/user/default.target.wants/npm-open-appsec.service"
+sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user start npm-open-appsec.service
 
 info "Done."
 info "Control directory: ${CONTROL_DIR}"
