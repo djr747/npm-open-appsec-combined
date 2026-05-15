@@ -443,6 +443,8 @@ Use this path when you want a cloud-managed deployment with the advanced model o
 
 4. The script then:
     - installs rootless Podman prerequisites
+    - installs `podman-compose` into `~/.local/bin` with `pip` if it is not already present
+    - falls back to the upstream `podman-compose` source archive if the PyPI install fails
     - creates `containeruser` if it does not exist
     - enables lingering so the user service survives logout
     - configures firewalld to forward 80, 81, and 443 to the rootless NPM ports (8080, 8181, 8443)

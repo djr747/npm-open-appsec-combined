@@ -132,28 +132,6 @@ write_env_var() {
     printf "'\n"
 }
 
-detect_compose_exec() {
-    local uid
-    uid="$(id -u "${CONTAINER_USER}")"
-    local runtime_dir="/run/user/${uid}"
-    local user_home="/home/${CONTAINER_USER}"
-    local user_path="${user_home}/.local/bin:/usr/local/bin:/usr/bin:/bin"
-    local podman_compose
-
-    if sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export XDG_RUNTIME_DIR=\"${runtime_dir}\"; export PATH=\"${user_path}\"; cd \"\$HOME\" && podman compose version" >/dev/null 2>&1; then
-        printf '%s compose' "$(command -v podman)"
-        return 0
-    fi
-
-    podman_compose="$(sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; cd \"\$HOME\" && command -v podman-compose" 2>/dev/null || true)"
-    if [ -n "${podman_compose}" ]; then
-        printf '%s' "${podman_compose}"
-        return 0
-    fi
-
-    return 1
-}
-
 install_rocky_packages() {
     local packages=(
         podman
@@ -176,27 +154,42 @@ install_rocky_packages() {
     command -v newgidmap >/dev/null 2>&1 || die "newgidmap was not found after installing rootless Podman prerequisites."
 }
 
-ensure_podman_compose() {
+detect_compose_exec() {
     local user_home="/home/${CONTAINER_USER}"
     local user_path="${user_home}/.local/bin:/usr/local/bin:/usr/bin:/bin"
+    local podman_compose
 
-    if detect_compose_exec >/dev/null 2>&1; then
+    podman_compose="$(sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; cd \"\$HOME\" && command -v podman-compose" 2>/dev/null || true)"
+    if [ -n "${podman_compose}" ]; then
+        printf '%s' "${podman_compose}"
         return 0
     fi
 
-    info "podman-compose package was not available from the base install; checking optional distro package..."
-    sudo dnf install -y podman-compose >/dev/null 2>&1 || true
+    return 1
+}
+
+install_podman_compose_spec() {
+    local spec="$1"
+    local user_home="/home/${CONTAINER_USER}"
+    local user_path="${user_home}/.local/bin:/usr/local/bin:/usr/bin:/bin"
+
+    sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; cd \"\$HOME\" && python3 -m pip install --user --upgrade ${spec}" >/dev/null 2>&1 && return 0
+    sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; cd \"\$HOME\" && python3 -m pip install --user --break-system-packages --upgrade ${spec}" >/dev/null 2>&1
+}
+
+ensure_podman_compose() {
     if detect_compose_exec >/dev/null 2>&1; then
         return 0
     fi
 
     info "Installing podman-compose for ${CONTAINER_USER} with pip..."
-    if ! sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; cd \"\$HOME\" && python3 -m pip install --user --upgrade podman-compose" >/dev/null 2>&1; then
-        sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; cd \"\$HOME\" && python3 -m pip install --user --break-system-packages --upgrade podman-compose" >/dev/null \
-            || die "podman-compose could not be installed. Install a Compose provider manually, then rerun this script."
+    if ! install_podman_compose_spec "podman-compose"; then
+        info "PyPI install failed; retrying podman-compose install from the upstream source archive..."
+        install_podman_compose_spec "https://github.com/containers/podman-compose/archive/main.tar.gz" \
+            || die "podman-compose could not be installed. Install podman-compose with pip, then rerun this script."
     fi
 
-    detect_compose_exec >/dev/null 2>&1 || die "podman-compose installed, but it was not found in ${user_path}."
+    detect_compose_exec >/dev/null 2>&1 || die "podman-compose was installed, but it was not found in /home/${CONTAINER_USER}/.local/bin."
 }
 
 configure_firewall_port_forwards() {
@@ -337,7 +330,6 @@ ENV_TMP="$(mktemp /tmp/npm-open-appsec-env.XXXXXX)"
     write_env_var CROWDSEC_APPSEC_URL "crowdsec:7422"
     write_env_var CROWDSEC_ENROLL_KEY "${CROWDSEC_ENROLL_KEY}"
     write_env_var CROWDSEC_ENROLL_INSTANCE_NAME "${CROWDSEC_ENROLL_INSTANCE_NAME}"
-    write_env_var COMPOSE_PROFILES "${COMPOSE_PROFILES}"
     write_env_var ADVANCED_MODEL_SOURCE "${ADVANCED_MODEL_SOURCE}"
 } >"${ENV_TMP}"
 if ! sudo test -f "${CONTROL_DIR}/.env" || ! sudo cmp -s "${CONTROL_DIR}/.env" "${ENV_TMP}" 2>/dev/null; then
@@ -348,6 +340,7 @@ fi
 rm -f "${ENV_TMP}"
 
 COMPOSE_EXEC="$(detect_compose_exec)" || die "Podman compose support was not found."
+info "Using compose provider: ${COMPOSE_EXEC}"
 UNIT_PATH="/home/${CONTAINER_USER}/.config/systemd/user/npm-open-appsec.service"
 sudo install -d -o "${CONTAINER_USER}" -g "${CONTAINER_USER}" -m 0700 "/home/${CONTAINER_USER}/.config/systemd/user"
 info "Creating user service at ${UNIT_PATH}..."
@@ -376,17 +369,17 @@ sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; 
 
 info "Starting the service..."
 info "Cleaning up any previous deployment..."
-timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"${CONTROL_DIR}\" && ${COMPOSE_EXEC} --env-file .env -f docker-compose.yml down --remove-orphans" || true
-timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"\$HOME\" && podman rm -f npm-open-appsec crowdsec" || true
-if sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"\$HOME\" && podman ps -a --format '{{.Names}}'" | grep -Eq '^(npm-open-appsec|crowdsec)$'; then
+timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"${CONTROL_DIR}\" && ${COMPOSE_EXEC} --env-file .env -f docker-compose.yml down --remove-orphans" || true
+timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman rm -f npm-open-appsec crowdsec" || true
+if sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman ps -a --format '{{.Names}}'" | grep -Eq '^(npm-open-appsec|crowdsec)$'; then
     die "Previous containers are still present after cleanup. Remove them manually with podman rm -f npm-open-appsec crowdsec, then rerun the script."
 fi
 info "Starting the deployment directly with compose..."
-timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"${CONTROL_DIR}\" && ${COMPOSE_EXEC} --env-file .env -f docker-compose.yml up -d --remove-orphans"
+timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"${CONTROL_DIR}\" && \"${COMPOSE_EXEC}\" --env-file .env -f docker-compose.yml up -d --remove-orphans"
 
 if [ "${ENABLE_CROWDSEC}" = "true" ]; then
-    if ! sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"\$HOME\" && podman ps --format \"{{.Names}}\"" | grep -Fxq crowdsec; then
-        sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"\$HOME\" && podman logs crowdsec --tail 50" >/dev/null 2>&1 || true
+    if ! sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman ps --format \"{{.Names}}\"" | grep -Fxq crowdsec; then
+        sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman logs crowdsec --tail 50" >/dev/null 2>&1 || true
         die "CrowdSec was enabled, but the crowdsec container did not start. Check the compose logs and the enrollment key."
     fi
 fi
