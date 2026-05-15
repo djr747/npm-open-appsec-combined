@@ -372,23 +372,17 @@ EOF
 install_text_for_container_user "${UNIT_TMP}" "${UNIT_PATH}" 0644
 rm -f "${UNIT_TMP}"
 sudo restorecon -F "${UNIT_PATH}" >/dev/null 2>&1 || true
-sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DBUS_SESSION_BUS_ADDRESS=\"unix:path=/run/user/${PUID}/bus\"; cd \"\$HOME\" && systemctl --user daemon-reload && systemctl --user reset-failed npm-open-appsec.service >/dev/null 2>&1 || true"
+sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DBUS_SESSION_BUS_ADDRESS=\"unix:path=/run/user/${PUID}/bus\"; cd \"\$HOME\" && systemctl --user daemon-reload"
 
 info "Starting the service..."
 info "Cleaning up any previous deployment..."
-timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DBUS_SESSION_BUS_ADDRESS=\"unix:path=/run/user/${PUID}/bus\"; cd \"\$HOME\" && systemctl --user stop npm-open-appsec.service >/dev/null 2>&1 || true" || true
-timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"${CONTROL_DIR}\" && ${COMPOSE_EXEC} --env-file .env -f docker-compose.yml down --remove-orphans >/dev/null 2>&1 || true" || true
-timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"\$HOME\" && podman rm -f npm-open-appsec crowdsec >/dev/null 2>&1 || true" || true
+timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"${CONTROL_DIR}\" && ${COMPOSE_EXEC} --env-file .env -f docker-compose.yml down --remove-orphans" || true
+timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"\$HOME\" && podman rm -f npm-open-appsec crowdsec" || true
 if sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"\$HOME\" && podman ps -a --format '{{.Names}}'" | grep -Eq '^(npm-open-appsec|crowdsec)$'; then
     die "Previous containers are still present after cleanup. Remove them manually with podman rm -f npm-open-appsec crowdsec, then rerun the script."
 fi
-sudo install -d -o "${CONTAINER_USER}" -g "${CONTAINER_USER}" -m 0755 "/home/${CONTAINER_USER}/.config/systemd/user/default.target.wants"
-sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; cd \"\$HOME\" && ln -sfn \"../npm-open-appsec.service\" \".config/systemd/user/default.target.wants/npm-open-appsec.service\""
-if sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DBUS_SESSION_BUS_ADDRESS=\"unix:path=/run/user/${PUID}/bus\"; cd \"\$HOME\" && systemctl --user is-active --quiet npm-open-appsec.service"; then
-    sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DBUS_SESSION_BUS_ADDRESS=\"unix:path=/run/user/${PUID}/bus\"; cd \"\$HOME\" && systemctl --user restart npm-open-appsec.service"
-else
-    sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DBUS_SESSION_BUS_ADDRESS=\"unix:path=/run/user/${PUID}/bus\"; cd \"\$HOME\" && systemctl --user start npm-open-appsec.service"
-fi
+info "Starting the deployment directly with compose..."
+timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"${CONTROL_DIR}\" && ${COMPOSE_EXEC} --env-file .env -f docker-compose.yml up -d --remove-orphans"
 
 if [ "${ENABLE_CROWDSEC}" = "true" ]; then
     if ! sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"\$HOME\" && podman ps --format \"{{.Names}}\"" | grep -Fxq crowdsec; then
