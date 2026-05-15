@@ -191,6 +191,33 @@ NGINX_CONF
     fi
 }
 
+normalize_nginx_listener_ports() {
+    local http_port="${NPM_HTTP_INTERNAL_PORT:-80}"
+    local https_port="${NPM_HTTPS_INTERNAL_PORT:-443}"
+    local changed=0
+    local file
+
+    if [ "${http_port}" = "80" ] && [ "${https_port}" = "443" ]; then
+        return 0
+    fi
+
+    while IFS= read -r -d '' file; do
+        if grep -Eq 'listen[[:space:]]+(\[::\]:)?(80|443)([[:space:];]|$)' "${file}" 2>/dev/null; then
+            sed -i -E \
+                -e "s/(listen[[:space:]]+\[::\]:)80([[:space:];])/\1${http_port}\2/g" \
+                -e "s/(listen[[:space:]]+)80([[:space:];])/\1${http_port}\2/g" \
+                -e "s/(listen[[:space:]]+\[::\]:)443([[:space:];])/\1${https_port}\2/g" \
+                -e "s/(listen[[:space:]]+)443([[:space:];])/\1${https_port}\2/g" \
+                "${file}"
+            changed=1
+        fi
+    done < <(find /etc/nginx/conf.d /data/nginx -type f -name '*.conf' 2>/dev/null -print0)
+
+    if [ "${changed}" -eq 1 ]; then
+        echo "[open-appsec-agent] NPM: normalized nginx listeners to ${http_port}/${https_port}"
+    fi
+}
+
 start_watchdog() {
     mkdir -p /etc/cp/watchdog
     : > /etc/cp/watchdog/wd.services.stop
@@ -217,6 +244,7 @@ if [ -f "${ADVANCED_MODEL}" ]; then
 fi
 
 configure_crowdsec_nginx
+normalize_nginx_listener_ports
 
 start_watchdog
 
@@ -257,5 +285,6 @@ while true; do
         start_watchdog
     fi
 
+    normalize_nginx_listener_ports
     sleep 5
 done

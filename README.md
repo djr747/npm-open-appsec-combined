@@ -69,14 +69,20 @@ Local policy mode is also supported in the same single-container setup.
 
 - Leave `AGENT_TOKEN` unset (no cloud profile connection)
 - Keep `autoPolicyLoad=true`
-- Place `local_policy.yaml` under the mounted `/ext/appsec` path (host-side: `./appsec/localconfig/local_policy.yaml`)
+- Place `local_policy.yaml` under the mounted `/ext/appsec` path (host-side example:
+  `/opt/openappsec/localconfig/local_policy.yaml`)
 
 Download a starter policy file:
 
 ```bash
-mkdir -p ./appsec/localconfig
+mkdir -p /opt/npm/data \
+         /opt/npm/letsencrypt \
+         /opt/openappsec/localconfig \
+         /opt/openappsec/conf \
+         /opt/openappsec/data \
+         /opt/openappsec/logs
 curl -fsSL https://raw.githubusercontent.com/openappsec/open-appsec-npm/main/deployment/local_policy.yaml \
-     -o ./appsec/localconfig/local_policy.yaml
+     -o /opt/openappsec/localconfig/local_policy.yaml
 ```
 
 See `examples/docker-compose.local-policy.yml` for a ready-to-use deployment.
@@ -102,22 +108,23 @@ The open-appsec paths added by this image are included in the ownership preparat
 ## Advanced ML model (optional)
 
 The startup script automatically handles the advanced ML model if the file is present at the
-expected container path.
+expected host path.
 
 Download the `open-appsec-advanced-model.tgz` from the
 [open-appsec releases](https://github.com/openappsec/openappsec/releases) and place it at the
-host-side path, then mount it into the container:
+host-side path:
 
 ```yaml
 volumes:
   # ... other mounts ...
-  - ./appsec/open-appsec-advanced-model.tgz:/advanced-model/open-appsec-advanced-model.tgz
+  - /opt/openappsec/open-appsec-advanced-model.tgz:/advanced-model/open-appsec-advanced-model.tgz
 ```
 
 The script extracts the archive into `/etc/cp/conf/waap` on each container start if the file is
-present. Both compose examples have this mount commented out — uncomment to activate.
+present. The cloud-managed example mounts it by default; the local-policy example leaves it
+commented out unless you want to use it there too.
 
-## Local ML tuning stack (advanced, optional)
+## Local ML tuning setup (advanced, optional)
 
 The NPMplus compose includes extra containers for an unsupervised ML suggestion loop
 (`smartsync`, `shared-storage`, `tuning-svc`, `openappsec-db`). These are **not needed** for
@@ -128,7 +135,7 @@ this setup:
 - **Without `AGENT_TOKEN` (local-policy mode)**: a static `local_policy.yaml` with
   `autoPolicyLoad=true` gives full WAF enforcement — no extra containers needed.
 
-The smartsync/tuning stack is only relevant if you want unsupervised ML-based policy suggestions
+The smartsync/tuning setup is only relevant if you want unsupervised ML-based policy suggestions
 running entirely on-premises without a cloud backend. See the NPMplus documentation for that
 optional advanced configuration.
 
@@ -158,20 +165,29 @@ generates nginx `auth_request` config automatically from container environment v
 # Pull the pre-built image
 docker pull ghcr.io/djr747/npm-open-appsec-combined:latest
 
-# Create a working directory and download only the files you need
-mkdir npm-open-appsec && cd npm-open-appsec
+# Create the deployment root and the component directories the compose file expects
+CONTROL_DIR=/home/containeruser/npm-open-appsec
+mkdir -p "${CONTROL_DIR}"
+mkdir -p /opt/npm/data \
+         /opt/npm/letsencrypt \
+         /opt/openappsec/localconfig \
+         /opt/openappsec/conf \
+         /opt/openappsec/data \
+         /opt/openappsec/logs \
+         /opt/crowdsec/data \
+         /opt/crowdsec/acquis.d
+cd "${CONTROL_DIR}"
 
 curl -fsSL https://raw.githubusercontent.com/djr747/npm-open-appsec-combined/main/examples/docker-compose.cloud-managed.yml \
      -o docker-compose.yml
 
-mkdir -p crowdsec/acquis.d
 curl -fsSL https://raw.githubusercontent.com/djr747/npm-open-appsec-combined/main/crowdsec/acquis.d/npm-open-appsec.yaml \
-     -o crowdsec/acquis.d/npm-open-appsec.yaml
+     -o /opt/crowdsec/acquis.d/npm-open-appsec.yaml
 
 # Create a reusable compose env file.
 # Generate CROWDSEC_ENROLL_KEY at https://app.crowdsec.net (Security Engines -> Add Security Engine)
 cat > .env <<'EOF'
-IMAGE_REPOSITORY=djr747/npm-open-appsec-combined
+IMAGE_REPOSITORY=ghcr.io/djr747/npm-open-appsec-combined
 NPM_IMAGE_TAG=latest
 CROWDSEC_ENROLL_KEY=your-crowdsec-enrollment-key
 CROWDSEC_ENROLL_INSTANCE_NAME=npm-open-appsec
@@ -179,7 +195,7 @@ APPSEC_AGENT_TOKEN=your-open-appsec-token
 APPSEC_USER_EMAIL=you@example.com
 EOF
 
-# Start the stack (CrowdSec registration happens automatically when CROWDSEC_ENROLL_KEY is set)
+# Start the deployment (CrowdSec registration happens automatically when CROWDSEC_ENROLL_KEY is set)
 docker compose --env-file .env up -d
 
 # Confirm CrowdSec registration status
@@ -188,8 +204,10 @@ docker compose exec crowdsec cscli console status
 
 That compose file is fully declarative:
 
-- CrowdSec acquisition config is provided via a bind-mounted file
-  (`crowdsec/acquis.d/npm-open-appsec.yaml`)
+- CrowdSec AppSec acquisition config is provided via a bind-mounted file
+  (`/opt/crowdsec/acquis.d/npm-open-appsec.yaml`)
+- if you want NPM access-log ingestion later, add an additional acquisition file
+  under `/opt/crowdsec/acquis.d`
 - `npm-open-appsec` auto-generates the nginx custom includes on first start
 - all proxy hosts are protected automatically through NPM's global `server_proxy.conf` and
   `server_redirect.conf` custom include hooks
@@ -258,7 +276,7 @@ mount to the CrowdSec container:
 
 ```yaml
 volumes:
-  - ./appsec/logs:/var/log/nano_agent:ro
+  - /opt/openappsec/logs:/var/log/nano_agent:ro
 ```
 
 > **Note:** CrowdSec does not ship a built-in open-appsec log parser. A custom parser that
@@ -331,9 +349,10 @@ single-sidecar CrowdSec AppSec configuration so the example is deployable as-is.
 If you want cloud-managed open-appsec without CrowdSec enforcement, set
 `CROWDSEC_ENABLED=false`.
 
-The CrowdSec acquisition config is provided declaratively via
+The CrowdSec AppSec acquisition config is provided declaratively via
 `crowdsec/acquis.d/npm-open-appsec.yaml`, which is bind-mounted read-only into the
-CrowdSec container — no shell scripts or runtime file writes are needed.
+CrowdSec container — no shell scripts or runtime file writes are needed. If you want
+NPM access-log ingestion as well, add a separate acquisition file under `crowdsec/acquis.d`.
 
 Set at least:
 
@@ -346,6 +365,8 @@ Optional and recommended:
 - `PGID`
 - `CROWDSEC_ENROLL_KEY` (optional, to register this CrowdSec instance in CrowdSec Console)
 - `CROWDSEC_ENROLL_INSTANCE_NAME` (optional display name in CrowdSec Console)
+
+The rootless examples keep the upstream NPM user model (`PUID` / `PGID` default to `1000`), and the container startup script normalizes nginx listeners to the configured internal ports. In the rootless examples those internal ports are set to `8080` / `8443`, while the host-side session still runs as `containeruser`.
 
 If you want CrowdSec account registration, generate an enrollment token in CrowdSec Console and set:
 
@@ -361,23 +382,181 @@ Runs fully offline using a local `local_policy.yaml` — no cloud token needed.
 Before starting:
 
 ```bash
-mkdir -p ./appsec/localconfig
+mkdir -p /opt/npm/data \
+         /opt/npm/letsencrypt \
+         /opt/openappsec/localconfig \
+         /opt/openappsec/conf \
+         /opt/openappsec/data \
+         /opt/openappsec/logs
 curl -fsSL https://raw.githubusercontent.com/openappsec/open-appsec-npm/main/deployment/local_policy.yaml \
-     -o ./appsec/localconfig/local_policy.yaml
+     -o /opt/openappsec/localconfig/local_policy.yaml
 ```
+
+### VM bootstrap scripts
+
+Two end-to-end bootstrap scripts live in `examples/`. They are for fresh VMs where you want the
+script to install the rootless container runtime, create `containeruser`, download the needed
+files, and start the deployment as a user service.
+
+The `curl` commands below use GitHub's `main` branch. They will return `404` until the bootstrap
+scripts are committed and pushed to that branch. If you are testing from another pushed branch,
+replace `main` in the URL with that branch name and run the script with the same `RAW_BASE_URL`,
+so it downloads the matching compose files.
+
+Use the table below to choose **one** path:
+
+| VM / goal | Script | What it downloads | Policy mode |
+| --- | --- | --- | --- |
+| Rocky / RHEL 10 | `examples/rocky-rhel10-cloud-managed-advanced.sh` | cloud-managed compose, CrowdSec acquisition file, advanced model archive | cloud-managed + advanced model |
+| Ubuntu 26.04 | `examples/ubuntu-2604-local-docker-rootless.sh` | local-policy compose, starter `local_policy.yaml` | local policy + rootless Docker |
+
+Do not run both scripts on the same VM. They manage the same service-owned runtime directories
+under `/opt/npm`, `/opt/openappsec`, and `/opt/crowdsec`.
+
+Both scripts default `IMAGE_REPOSITORY` to `ghcr.io/djr747/npm-open-appsec-combined`, which is
+the image published by this repo on GitHub Container Registry. Only override it if you are
+pointing at a fork or custom registry.
+They also reuse an existing `.env` from `/home/containeruser/npm-open-appsec`, so rerunning after
+a failure keeps the prior answers instead of making you start over.
+By default their service data lives under `/opt/npm`, `/opt/openappsec`, and `/opt/crowdsec`,
+not in the user home directory.
+
+#### Rocky / RHEL 10
+
+Use this path when you want a cloud-managed deployment with the advanced model on a Rocky or RHEL 10 VM.
+
+1. Download the script:
+
+   ```bash
+   RAW_BASE_URL=https://raw.githubusercontent.com/djr747/npm-open-appsec-combined/main
+   curl -fsSL "${RAW_BASE_URL}/examples/rocky-rhel10-cloud-managed-advanced.sh" \
+     -o rocky-rhel10-cloud-managed-advanced.sh
+   ```
+
+2. Make it executable and run it:
+
+   ```bash
+   chmod +x rocky-rhel10-cloud-managed-advanced.sh
+   RAW_BASE_URL="${RAW_BASE_URL}" ./rocky-rhel10-cloud-managed-advanced.sh
+   ```
+
+3. Answer the interactive prompts:
+   - cloud-managed open-appsec agent token
+   - deployment operator email
+   - whether CrowdSec should be enrolled
+   - advanced model archive URL or a local file path
+
+4. The script then:
+   - installs rootless Podman prerequisites
+   - installs `podman-compose` into `~/.local/bin` with `pip` if it is not already present
+   - falls back to the upstream `podman-compose` source archive if the PyPI install fails
+   - creates `containeruser` if it does not exist
+   - enables lingering so the user service survives logout
+   - automatically flips SELinux to enforcing when possible and persists the change; if SELinux was disabled at boot, it updates `/etc/selinux/config` and asks for one reboot
+   - configures firewalld to forward 80, 81, and 443 to the rootless NPM ports (8080, 8181, 8443)
+   - keeps the container-side NPM user model aligned with upstream while rewriting nginx listener ports to the configured internal ports
+   - runs the CrowdSec service from the rootless `containeruser` session and keeps `/opt/crowdsec/data` writable for reruns
+   - downloads `docker-compose.cloud-managed.yml`
+   - downloads `crowdsec/acquis.d/npm-open-appsec.yaml`
+   - if you provide a CrowdSec enrollment key, passes it through so CrowdSec auto-registers on first start
+   - waits for the CrowdSec container to reach `running`, then keeps checking that it stays up and prints its logs if startup fails
+   - stages the advanced model archive into `/opt/openappsec/open-appsec-advanced-model.tgz`
+   - writes a `systemd --user` unit and starts the deployment
+
+5. After it finishes:
+   - private compose control files live under `/home/containeruser/npm-open-appsec`
+   - service runtime data lives under `/opt/npm`, `/opt/openappsec`, and `/opt/crowdsec`
+
+6. To manage it later, use:
+
+   ```bash
+   PUID=$(id -u containeruser)
+   sudo -u containeruser XDG_RUNTIME_DIR="/run/user/${PUID}" \
+     DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" \
+     systemctl --user status npm-open-appsec.service
+   sudo -u containeruser XDG_RUNTIME_DIR="/run/user/${PUID}" \
+     DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" \
+     systemctl --user restart npm-open-appsec.service
+   ```
+
+Run `./rocky-rhel10-cloud-managed-advanced.sh --help` if you want the quick-start commands again.
+
+#### Ubuntu 26.04
+
+Use this path when you want a local-policy deployment with rootless Docker on Ubuntu 26.04.
+
+The Ubuntu bootstrap publishes NPM on high ports by default (`8080` / `8181` / `8443`) so it stays rootless-safe without changing any privileged-port sysctls.
+
+1. Download the script:
+
+   ```bash
+   RAW_BASE_URL=https://raw.githubusercontent.com/djr747/npm-open-appsec-combined/main
+   curl -fsSL "${RAW_BASE_URL}/examples/ubuntu-2604-local-docker-rootless.sh" \
+     -o ubuntu-2604-local-docker-rootless.sh
+   ```
+
+2. Make it executable and run it:
+
+   ```bash
+   chmod +x ubuntu-2604-local-docker-rootless.sh
+   RAW_BASE_URL="${RAW_BASE_URL}" ./ubuntu-2604-local-docker-rootless.sh
+   ```
+
+3. Answer the interactive prompt:
+   - none required unless you want to override `IMAGE_REPOSITORY` for a fork or custom registry
+
+4. The script then:
+   - installs Docker rootless prerequisites
+   - creates `containeruser` if it does not exist
+   - enables lingering so the user service survives logout
+   - downloads `docker-compose.local-policy.yml`
+   - downloads a starter `local_policy.yaml`
+   - writes a `systemd --user` unit and starts the deployment
+
+5. After it finishes:
+   - private compose control files live under `/home/containeruser/npm-open-appsec`
+   - service runtime data lives under `/opt/npm` and `/opt/openappsec`
+
+6. To manage it later, use:
+
+   ```bash
+   PUID=$(id -u containeruser)
+   sudo -u containeruser XDG_RUNTIME_DIR="/run/user/${PUID}" \
+     DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" \
+     systemctl --user status npm-open-appsec.service
+   sudo -u containeruser XDG_RUNTIME_DIR="/run/user/${PUID}" \
+     DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" \
+     systemctl --user restart npm-open-appsec.service
+   ```
+
+Run `./ubuntu-2604-local-docker-rootless.sh --help` if you want the quick-start commands again.
 
 ### Mount layout
 
-The compose files use the same host-side directory layout to keep NPM state and open-appsec state cleanly separated:
+The compose files use the same host-side directory layout to keep the runtime components
+separated.
+
+Rocky / RHEL 10 cloud-managed example:
 
 | Host path | Container path | Purpose |
-|---|---|---|
-| `./data` | `/data` | NPM state (database, proxy configs) |
-| `./letsencrypt` | `/etc/letsencrypt` | Let's Encrypt certificates |
-| `./appsec/localconfig` | `/ext/appsec` | Local policy / config exchange |
-| `./appsec/conf` | `/etc/cp/conf` | open-appsec agent configuration |
-| `./appsec/data` | `/etc/cp/data` | open-appsec agent data / ML model |
-| `./appsec/logs` | `/var/log/nano_agent` | open-appsec agent logs |
-| `./crowdsec/data` | `/var/lib/crowdsec/data` | CrowdSec persistent data |
-| `./crowdsec/acquis.d` | `/etc/crowdsec/acquis.d` | CrowdSec acquisition files (includes `npm-open-appsec.yaml`) |
-| `./data/logs` | `/var/log/npm` | NPM access logs consumed by CrowdSec |
+| --- | --- | --- |
+| `/opt/npm/data` | `/data` | NPM state (database, proxy configs) |
+| `/opt/npm/letsencrypt` | `/etc/letsencrypt` | NPM Let's Encrypt certificates |
+| `/opt/npm/data/logs` | `/var/log/npm` | NPM access logs consumed by CrowdSec |
+| `/opt/openappsec/localconfig` | `/ext/appsec` | open-appsec policy / config exchange |
+| `/opt/openappsec/conf` | `/etc/cp/conf` | open-appsec agent configuration |
+| `/opt/openappsec/data` | `/etc/cp/data` | open-appsec agent data / ML model |
+| `/opt/openappsec/logs` | `/var/log/nano_agent` | open-appsec agent logs |
+| `/opt/crowdsec/data` | `/var/lib/crowdsec/data` | CrowdSec persistent data |
+| `/opt/crowdsec/acquis.d` | `/etc/crowdsec/acquis.d` | CrowdSec acquisition files |
+
+Ubuntu 26.04 local-policy example:
+
+| Host path | Container path | Purpose |
+| --- | --- | --- |
+| `/opt/npm/data` | `/data` | NPM state (database, proxy configs) |
+| `/opt/npm/letsencrypt` | `/etc/letsencrypt` | NPM Let's Encrypt certificates |
+| `/opt/openappsec/localconfig` | `/ext/appsec` | open-appsec policy / config exchange |
+| `/opt/openappsec/conf` | `/etc/cp/conf` | open-appsec agent configuration |
+| `/opt/openappsec/data` | `/etc/cp/data` | open-appsec agent data / ML model |
+| `/opt/openappsec/logs` | `/var/log/nano_agent` | open-appsec agent logs |
