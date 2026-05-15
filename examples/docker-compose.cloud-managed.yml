@@ -24,9 +24,9 @@ services:
       # To edit later, manually update the generated map block in that file.
       - CROWDSEC_SKIP_HOSTS=${CROWDSEC_SKIP_HOSTS:-}
     ports:
-      - "80:80"
-      - "81:81"
-      - "443:443"
+      - "${NPM_HTTP_PORT:-8080}:80"
+      - "${NPM_ADMIN_PORT:-8181}:81"
+      - "${NPM_HTTPS_PORT:-8443}:443"
     volumes:
       - /opt/npm/data:/data
       - /opt/npm/letsencrypt:/etc/letsencrypt

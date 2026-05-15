@@ -292,7 +292,11 @@ info "Starting the service..."
 sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user daemon-reload
 sudo install -d -o "${CONTAINER_USER}" -g "${CONTAINER_USER}" -m 0755 "/home/${CONTAINER_USER}/.config/systemd/user/default.target.wants"
 sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" ln -sfn "../npm-open-appsec.service" "/home/${CONTAINER_USER}/.config/systemd/user/default.target.wants/npm-open-appsec.service"
-sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user start npm-open-appsec.service
+if sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user is-active --quiet npm-open-appsec.service; then
+    sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user restart npm-open-appsec.service
+else
+    sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user start npm-open-appsec.service
+fi
 
 info "Done."
 info "Control directory: ${CONTROL_DIR}"

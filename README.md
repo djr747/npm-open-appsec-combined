@@ -442,14 +442,15 @@ Use this path when you want a cloud-managed deployment with the advanced model o
    - advanced model archive URL or a local file path
 
 4. The script then:
-   - installs rootless Podman prerequisites
-   - creates `containeruser` if it does not exist
-   - enables lingering so the user service survives logout
-   - downloads `docker-compose.cloud-managed.yml`
-   - downloads `crowdsec/acquis.d/npm-open-appsec.yaml`
-   - if you provide a CrowdSec enrollment key, passes it through so CrowdSec auto-registers on first start
-   - stages the advanced model archive into `/opt/openappsec/open-appsec-advanced-model.tgz`
-   - writes a `systemd --user` unit and starts the deployment
+    - installs rootless Podman prerequisites
+    - creates `containeruser` if it does not exist
+    - enables lingering so the user service survives logout
+    - configures firewalld to forward 80, 81, and 443 to the rootless NPM ports (8080, 8181, 8443)
+    - downloads `docker-compose.cloud-managed.yml`
+    - downloads `crowdsec/acquis.d/npm-open-appsec.yaml`
+    - if you provide a CrowdSec enrollment key, passes it through so CrowdSec auto-registers on first start
+    - stages the advanced model archive into `/opt/openappsec/open-appsec-advanced-model.tgz`
+    - writes a `systemd --user` unit and starts the deployment
 
 5. After it finishes:
    - private compose control files live under `/home/containeruser/npm-open-appsec`

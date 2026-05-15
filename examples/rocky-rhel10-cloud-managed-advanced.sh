@@ -13,6 +13,9 @@ CONTROL_DIR="${CONTROL_DIR:-/home/${CONTAINER_USER}/npm-open-appsec}"
 IMAGE_REPOSITORY="${IMAGE_REPOSITORY:-ghcr.io/djr747/npm-open-appsec-combined}"
 NPM_IMAGE_TAG="${NPM_IMAGE_TAG:-latest}"
 TZ_NAME="${TZ:-UTC}"
+NPM_HTTP_PORT="${NPM_HTTP_PORT:-8080}"
+NPM_ADMIN_PORT="${NPM_ADMIN_PORT:-8181}"
+NPM_HTTPS_PORT="${NPM_HTTPS_PORT:-8443}"
 
 info() { printf '[%s] %s\n' "$(date -Iseconds)" "$*"; }
 die() { info "FATAL: $*"; exit 1; }
@@ -154,6 +157,7 @@ detect_compose_exec() {
 install_rocky_packages() {
     local packages=(
         podman
+        firewalld
         slirp4netns
         fuse-overlayfs
         curl
@@ -195,6 +199,15 @@ ensure_podman_compose() {
     detect_compose_exec >/dev/null 2>&1 || die "podman-compose installed, but it was not found in ${user_path}."
 }
 
+configure_firewall_port_forwards() {
+    info "Configuring firewalld port forwarding for rootless Podman..."
+    sudo systemctl enable --now firewalld >/dev/null
+    sudo firewall-cmd --permanent --add-forward-port="port=80:proto=tcp:toport=${NPM_HTTP_PORT}" >/dev/null 2>&1 || true
+    sudo firewall-cmd --permanent --add-forward-port="port=81:proto=tcp:toport=${NPM_ADMIN_PORT}" >/dev/null 2>&1 || true
+    sudo firewall-cmd --permanent --add-forward-port="port=443:proto=tcp:toport=${NPM_HTTPS_PORT}" >/dev/null 2>&1 || true
+    sudo firewall-cmd --reload >/dev/null
+}
+
 if [ "$(id -u)" -eq 0 ]; then
     die "Run this script as a sudo-capable admin user, not as root."
 fi
@@ -233,10 +246,12 @@ if [ "${ENABLE_CROWDSEC}" = "true" ]; then
     prompt "CROWDSEC_ENROLL_KEY" "CrowdSec enrollment key (leave blank to skip registration)" "${CROWDSEC_ENROLL_KEY:-}"
     prompt "CROWDSEC_ENROLL_INSTANCE_NAME" "CrowdSec instance name" "${CROWDSEC_ENROLL_INSTANCE_NAME:-npm-open-appsec}"
     COMPOSE_PROFILES="crowdsec"
+    COMPOSE_PROFILE_ARG="--profile crowdsec"
 else
     CROWDSEC_ENROLL_KEY=""
     CROWDSEC_ENROLL_INSTANCE_NAME=""
     COMPOSE_PROFILES=""
+    COMPOSE_PROFILE_ARG=""
 fi
 prompt "ADVANCED_MODEL_SOURCE" "Advanced model tarball URL or local path" "${ADVANCED_MODEL_SOURCE:-}"
 
@@ -247,11 +262,7 @@ prompt "ADVANCED_MODEL_SOURCE" "Advanced model tarball URL or local path" "${ADV
 
 info "Installing packages and enabling rootless Podman support..."
 install_rocky_packages
-sudo install -d /etc/sysctl.d >/dev/null
-if ! sudo grep -Fxq 'net.ipv4.ip_unprivileged_port_start = 0' /etc/sysctl.d/99-openappsec-rootless-ports.conf 2>/dev/null; then
-    printf 'net.ipv4.ip_unprivileged_port_start = 0\n' | sudo tee /etc/sysctl.d/99-openappsec-rootless-ports.conf >/dev/null
-    sudo sysctl --system >/dev/null
-fi
+configure_firewall_port_forwards
 
 info "Ensuring ${CONTAINER_USER} exists and has rootless ranges..."
 if ! id "${CONTAINER_USER}" >/dev/null 2>&1; then
@@ -315,6 +326,9 @@ ENV_TMP="$(mktemp /tmp/npm-open-appsec-env.XXXXXX)"
     write_env_var PUID "${PUID}"
     write_env_var PGID "${PGID}"
     write_env_var TZ "${TZ_NAME}"
+    write_env_var NPM_HTTP_PORT "${NPM_HTTP_PORT}"
+    write_env_var NPM_ADMIN_PORT "${NPM_ADMIN_PORT}"
+    write_env_var NPM_HTTPS_PORT "${NPM_HTTPS_PORT}"
     write_env_var APPSEC_AGENT_TOKEN "${APPSEC_AGENT_TOKEN}"
     write_env_var APPSEC_USER_EMAIL "${APPSEC_USER_EMAIL}"
     write_env_var APPSEC_AUTO_POLICY_LOAD "true"
@@ -347,7 +361,7 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=${CONTROL_DIR}
-ExecStart=${COMPOSE_EXEC} --env-file .env -f docker-compose.yml up -d --remove-orphans
+ExecStart=${COMPOSE_EXEC} ${COMPOSE_PROFILE_ARG:+${COMPOSE_PROFILE_ARG} }--env-file .env -f docker-compose.yml up -d --remove-orphans
 ExecStop=${COMPOSE_EXEC} --env-file .env -f docker-compose.yml down --remove-orphans
 TimeoutStartSec=0
 TimeoutStopSec=0
@@ -363,7 +377,18 @@ info "Starting the service..."
 sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user daemon-reload
 sudo install -d -o "${CONTAINER_USER}" -g "${CONTAINER_USER}" -m 0755 "/home/${CONTAINER_USER}/.config/systemd/user/default.target.wants"
 sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" ln -sfn "../npm-open-appsec.service" "/home/${CONTAINER_USER}/.config/systemd/user/default.target.wants/npm-open-appsec.service"
-sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user start npm-open-appsec.service
+if sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user is-active --quiet npm-open-appsec.service; then
+    sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user restart npm-open-appsec.service
+else
+    sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user start npm-open-appsec.service
+fi
+
+if [ "${ENABLE_CROWDSEC}" = "true" ]; then
+    if ! sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DOCKER_HOST=unix:///run/user/${PUID}/docker.sock podman ps --format '{{.Names}}' | grep -Fxq crowdsec; then
+        sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DOCKER_HOST=unix:///run/user/${PUID}/docker.sock podman logs crowdsec --tail 50 >/dev/null 2>&1 || true
+        die "CrowdSec was enabled, but the crowdsec container did not start. Check the compose logs and the enrollment key."
+    fi
+fi
 
 info "Done."
 info "Control directory: ${CONTROL_DIR}"
