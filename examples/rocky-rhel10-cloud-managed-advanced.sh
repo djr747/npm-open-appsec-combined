@@ -369,13 +369,13 @@ sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; 
 
 info "Starting the service..."
 info "Cleaning up any previous deployment..."
-timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"${CONTROL_DIR}\" && ${COMPOSE_EXEC} --env-file .env -f docker-compose.yml down --remove-orphans" || true
+timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"${CONTROL_DIR}\" && ${COMPOSE_EXEC} ${COMPOSE_PROFILE_ARG:+${COMPOSE_PROFILE_ARG} }--env-file .env -f docker-compose.yml down --remove-orphans" || true
 timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman rm -f npm-open-appsec crowdsec" || true
 if sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman ps -a --format '{{.Names}}'" | grep -Eq '^(npm-open-appsec|crowdsec)$'; then
     die "Previous containers are still present after cleanup. Remove them manually with podman rm -f npm-open-appsec crowdsec, then rerun the script."
 fi
 info "Starting the deployment directly with compose..."
-timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"${CONTROL_DIR}\" && \"${COMPOSE_EXEC}\" --env-file .env -f docker-compose.yml up -d --remove-orphans"
+timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"${CONTROL_DIR}\" && \"${COMPOSE_EXEC}\" ${COMPOSE_PROFILE_ARG:+${COMPOSE_PROFILE_ARG} }--env-file .env -f docker-compose.yml up -d --remove-orphans"
 
 if [ "${ENABLE_CROWDSEC}" = "true" ]; then
     if ! sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman ps --format \"{{.Names}}\"" | grep -Fxq crowdsec; then
