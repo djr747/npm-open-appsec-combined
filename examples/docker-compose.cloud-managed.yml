@@ -44,10 +44,9 @@ services:
     container_name: crowdsec
     profiles:
       - crowdsec
-    # Run the CrowdSec process as the same numeric user/group as the host
-    # control user so the rootless Podman bind mount stays writable on reruns.
-    userns_mode: keep-id
-    user: "${PUID:-1000}:${PGID:-1000}"
+    # Run CrowdSec with Podman's default rootless mapping.
+    # Do not force a separate container user here; podman-compose runs this
+    # service in a pod, and extra userns overrides break that startup path.
     restart: unless-stopped
     environment:
       - TZ=${TZ:-UTC}
@@ -62,7 +61,7 @@ services:
       - ENROLL_INSTANCE_NAME=${CROWDSEC_ENROLL_INSTANCE_NAME:-npm-open-appsec}
     volumes:
       # Keep CrowdSec state in a host path (same pattern as other services).
-      - /opt/crowdsec/data:/var/lib/crowdsec/data
+      - /opt/crowdsec/data:/var/lib/crowdsec/data:Z
       # Declarative acquisition config (downloaded into /opt/crowdsec/acquis.d).
       - /opt/crowdsec/acquis.d:/etc/crowdsec/acquis.d:ro
       # NPM per-host access logs: /opt/npm/data/logs/proxy-host-*_access.log

@@ -138,6 +138,7 @@ install_rocky_packages() {
         firewalld
         slirp4netns
         fuse-overlayfs
+        policycoreutils
         curl
         wget
         python3
@@ -152,6 +153,51 @@ install_rocky_packages() {
 
     command -v newuidmap >/dev/null 2>&1 || die "newuidmap was not found after installing rootless Podman prerequisites."
     command -v newgidmap >/dev/null 2>&1 || die "newgidmap was not found after installing rootless Podman prerequisites."
+}
+
+ensure_selinux_enforcing() {
+    local selinux_state=""
+    local selinux_config="/etc/selinux/config"
+
+    if command -v getenforce >/dev/null 2>&1; then
+        selinux_state="$(getenforce 2>/dev/null || true)"
+    fi
+
+    persist_selinux_config() {
+        if sudo test -f "${selinux_config}"; then
+            if sudo grep -Eq '^SELINUX=' "${selinux_config}" 2>/dev/null; then
+                sudo sed -i -E 's/^SELINUX=.*/SELINUX=enforcing/' "${selinux_config}"
+            else
+                printf '\nSELINUX=enforcing\n' | sudo tee -a "${selinux_config}" >/dev/null
+            fi
+        fi
+    }
+
+    case "${selinux_state}" in
+        Enforcing)
+            persist_selinux_config
+            return 0
+            ;;
+        Permissive)
+            info "SELinux is permissive; switching to enforcing now and persisting the change..."
+            sudo setenforce 1 >/dev/null
+            persist_selinux_config
+            selinux_state="$(getenforce 2>/dev/null || true)"
+            [ "${selinux_state}" = "Enforcing" ] || die "Failed to switch SELinux to enforcing."
+            return 0
+            ;;
+        Disabled)
+            info "SELinux is disabled at boot; persisting enforcing mode for the next reboot..."
+            persist_selinux_config
+            die "SELinux is disabled at boot. The bootstrap updated /etc/selinux/config to enforcing, but the host must be rebooted once before rerunning."
+            ;;
+        "")
+            die "Unable to determine SELinux mode. Verify SELinux is enabled and enforcing, then rerun."
+            ;;
+        *)
+            die "Unexpected SELinux mode: ${selinux_state}. Verify SELinux is enforcing, then rerun."
+            ;;
+    esac
 }
 
 detect_compose_exec() {
@@ -321,6 +367,7 @@ prompt "ADVANCED_MODEL_SOURCE" "Advanced model tarball URL or local path" "${ADV
 
 info "Installing packages and enabling rootless Podman support..."
 install_rocky_packages
+ensure_selinux_enforcing
 configure_firewall_port_forwards
 
 info "Ensuring ${CONTAINER_USER} exists and has rootless ranges..."

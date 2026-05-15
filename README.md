@@ -450,8 +450,9 @@ Use this path when you want a cloud-managed deployment with the advanced model o
     - falls back to the upstream `podman-compose` source archive if the PyPI install fails
     - creates `containeruser` if it does not exist
     - enables lingering so the user service survives logout
+    - automatically flips SELinux to enforcing when possible and persists the change; if SELinux was disabled at boot, it updates `/etc/selinux/config` and asks for one reboot
     - configures firewalld to forward 80, 81, and 443 to the rootless NPM ports (8080, 8181, 8443)
-    - runs the CrowdSec service as the same numeric `PUID` / `PGID` as `containeruser` so the bind-mounted data directory stays writable
+    - runs the CrowdSec service from the rootless `containeruser` session and keeps `/opt/crowdsec/data` writable for reruns
     - downloads `docker-compose.cloud-managed.yml`
     - downloads `crowdsec/acquis.d/npm-open-appsec.yaml`
     - if you provide a CrowdSec enrollment key, passes it through so CrowdSec auto-registers on first start
