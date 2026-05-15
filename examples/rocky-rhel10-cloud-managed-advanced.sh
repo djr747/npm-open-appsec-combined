@@ -318,6 +318,7 @@ rm -f "${ENV_TMP}"
 
 COMPOSE_EXEC="$(detect_compose_exec)" || die "Podman compose support was not found."
 UNIT_PATH="/home/${CONTAINER_USER}/.config/systemd/user/npm-open-appsec.service"
+sudo install -d -o "${CONTAINER_USER}" -g "${CONTAINER_USER}" -m 0700 "/home/${CONTAINER_USER}/.config/systemd/user"
 info "Creating user service at ${UNIT_PATH}..."
 UNIT_TMP="$(mktemp /tmp/npm-open-appsec-systemd.XXXXXX)"
 cat >"${UNIT_TMP}" <<EOF
@@ -344,7 +345,9 @@ sudo restorecon -F "${UNIT_PATH}" >/dev/null 2>&1 || true
 
 info "Starting the service..."
 sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user daemon-reload
-sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user enable --now npm-open-appsec.service
+sudo install -d -o "${CONTAINER_USER}" -g "${CONTAINER_USER}" -m 0755 "/home/${CONTAINER_USER}/.config/systemd/user/default.target.wants"
+sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" ln -sfn "../npm-open-appsec.service" "/home/${CONTAINER_USER}/.config/systemd/user/default.target.wants/npm-open-appsec.service"
+sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user start npm-open-appsec.service
 
 info "Done."
 info "Control directory: ${CONTROL_DIR}"
