@@ -101,7 +101,7 @@ detect_compose_exec() {
     uid="$(id -u "${CONTAINER_USER}")"
     local runtime_dir="/run/user/${uid}"
 
-    if sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="${runtime_dir}" docker compose version >/dev/null 2>&1; then
+    if sudo -u "${CONTAINER_USER}" -H -D "/home/${CONTAINER_USER}" env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="${runtime_dir}" sh -lc 'cd "$HOME" && docker compose version' >/dev/null 2>&1; then
         printf '%s compose' "$(command -v docker)"
         return 0
     fi
@@ -207,14 +207,14 @@ sudo install -d -o "${CONTAINER_USER}" -g "${CONTAINER_USER}" -m 0700 "${USER_RU
 ensure_docker_compose
 
 info "Configuring rootless Docker for ${CONTAINER_USER}..."
-if ! sudo -u "${CONTAINER_USER}" -H env "${USER_ENV[@]}" DOCKER_HOST="unix://${USER_RUNTIME_DIR}/docker.sock" docker info >/dev/null 2>&1; then
+if ! sudo -u "${CONTAINER_USER}" -H -D "/home/${CONTAINER_USER}" env "${USER_ENV[@]}" DOCKER_HOST="unix://${USER_RUNTIME_DIR}/docker.sock" sh -lc 'cd "$HOME" && docker info' >/dev/null 2>&1; then
     if ! command -v dockerd-rootless-setuptool.sh >/dev/null 2>&1; then
         die "dockerd-rootless-setuptool.sh was not found. Install Docker rootless extras, then rerun this script."
     fi
-    sudo -u "${CONTAINER_USER}" -H env "${USER_ENV[@]}" dockerd-rootless-setuptool.sh install --force >/dev/null
-    sudo -u "${CONTAINER_USER}" -H env "${USER_ENV[@]}" systemctl --user enable --now docker.service >/dev/null
+    sudo -u "${CONTAINER_USER}" -H -D "/home/${CONTAINER_USER}" env "${USER_ENV[@]}" sh -lc 'cd "$HOME" && dockerd-rootless-setuptool.sh install --force' >/dev/null
+    sudo -u "${CONTAINER_USER}" -H -D "/home/${CONTAINER_USER}" env "${USER_ENV[@]}" sh -lc 'cd "$HOME" && systemctl --user enable --now docker.service' >/dev/null
 fi
-sudo -u "${CONTAINER_USER}" -H env "${USER_ENV[@]}" DOCKER_HOST="unix://${USER_RUNTIME_DIR}/docker.sock" docker info >/dev/null \
+sudo -u "${CONTAINER_USER}" -H -D "/home/${CONTAINER_USER}" env "${USER_ENV[@]}" DOCKER_HOST="unix://${USER_RUNTIME_DIR}/docker.sock" sh -lc 'cd "$HOME" && docker info' >/dev/null \
     || die "Rootless Docker did not start for ${CONTAINER_USER}."
 
 info "Preparing private control directory under ${CONTROL_DIR}..."
@@ -289,13 +289,13 @@ rm -f "${UNIT_TMP}"
 sudo restorecon -F "${UNIT_PATH}" >/dev/null 2>&1 || true
 
 info "Starting the service..."
-sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user daemon-reload
+sudo -u "${CONTAINER_USER}" -H -D "/home/${CONTAINER_USER}" env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" sh -lc 'cd "$HOME" && systemctl --user daemon-reload'
 sudo install -d -o "${CONTAINER_USER}" -g "${CONTAINER_USER}" -m 0755 "/home/${CONTAINER_USER}/.config/systemd/user/default.target.wants"
-sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" ln -sfn "../npm-open-appsec.service" "/home/${CONTAINER_USER}/.config/systemd/user/default.target.wants/npm-open-appsec.service"
-if sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user is-active --quiet npm-open-appsec.service; then
-    sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user restart npm-open-appsec.service
+sudo -u "${CONTAINER_USER}" -H -D "/home/${CONTAINER_USER}" env HOME="/home/${CONTAINER_USER}" sh -lc 'cd "$HOME" && ln -sfn "../npm-open-appsec.service" ".config/systemd/user/default.target.wants/npm-open-appsec.service"'
+if sudo -u "${CONTAINER_USER}" -H -D "/home/${CONTAINER_USER}" env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" sh -lc 'cd "$HOME" && systemctl --user is-active --quiet npm-open-appsec.service'; then
+    sudo -u "${CONTAINER_USER}" -H -D "/home/${CONTAINER_USER}" env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" sh -lc 'cd "$HOME" && systemctl --user restart npm-open-appsec.service'
 else
-    sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user start npm-open-appsec.service
+    sudo -u "${CONTAINER_USER}" -H -D "/home/${CONTAINER_USER}" env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" sh -lc 'cd "$HOME" && systemctl --user start npm-open-appsec.service'
 fi
 
 info "Done."

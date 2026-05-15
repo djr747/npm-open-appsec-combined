@@ -140,12 +140,12 @@ detect_compose_exec() {
     local user_path="${user_home}/.local/bin:/usr/local/bin:/usr/bin:/bin"
     local podman_compose
 
-    if sudo -u "${CONTAINER_USER}" -H env HOME="${user_home}" XDG_RUNTIME_DIR="${runtime_dir}" PATH="${user_path}" podman compose version >/dev/null 2>&1; then
+    if sudo -u "${CONTAINER_USER}" -H -D "${user_home}" env HOME="${user_home}" XDG_RUNTIME_DIR="${runtime_dir}" PATH="${user_path}" sh -lc 'cd "$HOME" && podman compose version' >/dev/null 2>&1; then
         printf '%s compose' "$(command -v podman)"
         return 0
     fi
 
-    podman_compose="$(sudo -u "${CONTAINER_USER}" -H env HOME="${user_home}" PATH="${user_path}" sh -lc 'command -v podman-compose' 2>/dev/null || true)"
+    podman_compose="$(sudo -u "${CONTAINER_USER}" -H -D "${user_home}" env HOME="${user_home}" PATH="${user_path}" sh -lc 'cd "$HOME" && command -v podman-compose' 2>/dev/null || true)"
     if [ -n "${podman_compose}" ]; then
         printf '%s' "${podman_compose}"
         return 0
@@ -191,8 +191,8 @@ ensure_podman_compose() {
     fi
 
     info "Installing podman-compose for ${CONTAINER_USER} with pip..."
-    if ! sudo -u "${CONTAINER_USER}" -H env HOME="${user_home}" PATH="${user_path}" python3 -m pip install --user --upgrade podman-compose >/dev/null 2>&1; then
-        sudo -u "${CONTAINER_USER}" -H env HOME="${user_home}" PATH="${user_path}" python3 -m pip install --user --break-system-packages --upgrade podman-compose >/dev/null \
+    if ! sudo -u "${CONTAINER_USER}" -H -D "${user_home}" env HOME="${user_home}" PATH="${user_path}" sh -lc 'cd "$HOME" && python3 -m pip install --user --upgrade podman-compose' >/dev/null 2>&1; then
+        sudo -u "${CONTAINER_USER}" -H -D "${user_home}" env HOME="${user_home}" PATH="${user_path}" sh -lc 'cd "$HOME" && python3 -m pip install --user --break-system-packages --upgrade podman-compose' >/dev/null \
             || die "podman-compose could not be installed. Install a Compose provider manually, then rerun this script."
     fi
 
@@ -374,18 +374,18 @@ rm -f "${UNIT_TMP}"
 sudo restorecon -F "${UNIT_PATH}" >/dev/null 2>&1 || true
 
 info "Starting the service..."
-sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user daemon-reload
+sudo -u "${CONTAINER_USER}" -H -D "/home/${CONTAINER_USER}" env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" sh -lc 'cd "$HOME" && systemctl --user daemon-reload'
 sudo install -d -o "${CONTAINER_USER}" -g "${CONTAINER_USER}" -m 0755 "/home/${CONTAINER_USER}/.config/systemd/user/default.target.wants"
-sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" ln -sfn "../npm-open-appsec.service" "/home/${CONTAINER_USER}/.config/systemd/user/default.target.wants/npm-open-appsec.service"
-if sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user is-active --quiet npm-open-appsec.service; then
-    sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user restart npm-open-appsec.service
+sudo -u "${CONTAINER_USER}" -H -D "/home/${CONTAINER_USER}" env HOME="/home/${CONTAINER_USER}" sh -lc 'cd "$HOME" && ln -sfn "../npm-open-appsec.service" ".config/systemd/user/default.target.wants/npm-open-appsec.service"'
+if sudo -u "${CONTAINER_USER}" -H -D "/home/${CONTAINER_USER}" env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" sh -lc 'cd "$HOME" && systemctl --user is-active --quiet npm-open-appsec.service'; then
+    sudo -u "${CONTAINER_USER}" -H -D "/home/${CONTAINER_USER}" env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" sh -lc 'cd "$HOME" && systemctl --user restart npm-open-appsec.service'
 else
-    sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" systemctl --user start npm-open-appsec.service
+    sudo -u "${CONTAINER_USER}" -H -D "/home/${CONTAINER_USER}" env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${PUID}/bus" sh -lc 'cd "$HOME" && systemctl --user start npm-open-appsec.service'
 fi
 
 if [ "${ENABLE_CROWDSEC}" = "true" ]; then
-    if ! sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DOCKER_HOST=unix:///run/user/${PUID}/docker.sock podman ps --format '{{.Names}}' | grep -Fxq crowdsec; then
-        sudo -u "${CONTAINER_USER}" -H env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DOCKER_HOST=unix:///run/user/${PUID}/docker.sock podman logs crowdsec --tail 50 >/dev/null 2>&1 || true
+    if ! sudo -u "${CONTAINER_USER}" -H -D "/home/${CONTAINER_USER}" env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DOCKER_HOST=unix:///run/user/${PUID}/docker.sock sh -lc 'cd "$HOME" && podman ps --format "{{.Names}}"' | grep -Fxq crowdsec; then
+        sudo -u "${CONTAINER_USER}" -H -D "/home/${CONTAINER_USER}" env HOME="/home/${CONTAINER_USER}" XDG_RUNTIME_DIR="/run/user/${PUID}" DOCKER_HOST=unix:///run/user/${PUID}/docker.sock sh -lc 'cd "$HOME" && podman logs crowdsec --tail 50' >/dev/null 2>&1 || true
         die "CrowdSec was enabled, but the crowdsec container did not start. Check the compose logs and the enrollment key."
     fi
 fi
