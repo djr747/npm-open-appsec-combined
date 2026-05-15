@@ -363,7 +363,7 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=${CONTROL_DIR}
 ExecStart=${COMPOSE_EXEC} ${COMPOSE_PROFILE_ARG:+${COMPOSE_PROFILE_ARG} }--env-file .env -f docker-compose.yml up -d --remove-orphans
-ExecStop=${COMPOSE_EXEC} --env-file .env -f docker-compose.yml down --remove-orphans
+ExecStop=-${COMPOSE_EXEC} ${COMPOSE_PROFILE_ARG:+${COMPOSE_PROFILE_ARG} }--env-file .env -f docker-compose.yml down --remove-orphans
 TimeoutStartSec=0
 TimeoutStopSec=0
 
@@ -376,9 +376,9 @@ sudo restorecon -F "${UNIT_PATH}" >/dev/null 2>&1 || true
 
 info "Starting the service..."
 info "Cleaning up any previous deployment..."
-timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"\$HOME\" && podman rm -f npm-open-appsec crowdsec >/dev/null 2>&1 || true" || true
 timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DBUS_SESSION_BUS_ADDRESS=\"unix:path=/run/user/${PUID}/bus\"; cd \"\$HOME\" && systemctl --user stop npm-open-appsec.service >/dev/null 2>&1 || true" || true
 timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"\$HOME\" && ${COMPOSE_EXEC} --env-file .env -f docker-compose.yml down --remove-orphans >/dev/null 2>&1 || true" || true
+timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"\$HOME\" && podman rm -f npm-open-appsec crowdsec >/dev/null 2>&1 || true" || true
 if sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"\$HOME\" && podman ps -a --format '{{.Names}}'" | grep -Eq '^(npm-open-appsec|crowdsec)$'; then
     die "Previous containers are still present after cleanup. Remove them manually with podman rm -f npm-open-appsec crowdsec, then rerun the script."
 fi
