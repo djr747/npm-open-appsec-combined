@@ -28,7 +28,8 @@ services:
       - "${NPM_ADMIN_PORT:-8181}:81"
       - "${NPM_HTTPS_PORT:-8443}:443"
     volumes:
-      - /opt/npm/data:/data:Z,U
+      # Shared with CrowdSec's read-only log mount below, so this path uses a shared SELinux label.
+      - /opt/npm/data:/data:z,U
       - /opt/npm/letsencrypt:/etc/letsencrypt:Z,U
       - /opt/openappsec/localconfig:/ext/appsec:Z,U
       - /opt/openappsec/conf:/etc/cp/conf:Z,U
@@ -65,4 +66,5 @@ services:
       # Declarative acquisition config (downloaded into /opt/crowdsec/acquis.d).
       - /opt/crowdsec/acquis.d:/etc/crowdsec/acquis.d:ro,Z
       # NPM per-host access logs: /opt/npm/data/logs/proxy-host-*_access.log
-      - /opt/npm/data/logs:/var/log/npm:ro,Z
+      # Shared SELinux label keeps CrowdSec and NPM able to read the same tree.
+      - /opt/npm/data/logs:/var/log/npm:ro,z
