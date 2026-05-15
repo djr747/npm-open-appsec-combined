@@ -363,7 +363,6 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=${CONTROL_DIR}
 ExecStart=${COMPOSE_EXEC} ${COMPOSE_PROFILE_ARG:+${COMPOSE_PROFILE_ARG} }--env-file .env -f docker-compose.yml up -d --remove-orphans
-ExecStop=-${COMPOSE_EXEC} ${COMPOSE_PROFILE_ARG:+${COMPOSE_PROFILE_ARG} }--env-file .env -f docker-compose.yml down --remove-orphans
 TimeoutStartSec=0
 TimeoutStopSec=0
 

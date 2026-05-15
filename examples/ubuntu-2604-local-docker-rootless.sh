@@ -278,7 +278,6 @@ RemainAfterExit=yes
 WorkingDirectory=${CONTROL_DIR}
 Environment=DOCKER_HOST=unix:///run/user/${PUID}/docker.sock
 ExecStart=${COMPOSE_EXEC} --env-file .env -f docker-compose.yml up -d --remove-orphans
-ExecStop=-${COMPOSE_EXEC} --env-file .env -f docker-compose.yml down --remove-orphans
 TimeoutStartSec=0
 TimeoutStopSec=0
 
