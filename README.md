@@ -451,6 +451,7 @@ Use this path when you want a cloud-managed deployment with the advanced model o
     - downloads `docker-compose.cloud-managed.yml`
     - downloads `crowdsec/acquis.d/npm-open-appsec.yaml`
     - if you provide a CrowdSec enrollment key, passes it through so CrowdSec auto-registers on first start
+    - waits for the CrowdSec container to reach `running` and prints its logs if startup fails
     - stages the advanced model archive into `/opt/openappsec/open-appsec-advanced-model.tgz`
     - writes a `systemd --user` unit and starts the deployment
 

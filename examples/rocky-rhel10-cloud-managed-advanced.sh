@@ -192,6 +192,35 @@ ensure_podman_compose() {
     detect_compose_exec >/dev/null 2>&1 || die "podman-compose was installed, but it was not found in /home/${CONTAINER_USER}/.local/bin."
 }
 
+wait_for_container_running() {
+    local container_name="$1"
+    local label="$2"
+    local timeout_seconds="${3:-120}"
+    local attempt=0
+    local status=""
+    local user_home="/home/${CONTAINER_USER}"
+    local user_path="${user_home}/.local/bin:/usr/local/bin:/usr/bin:/bin"
+
+    while [ "${attempt}" -lt "${timeout_seconds}" ]; do
+        status="$(sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman inspect -f '{{.State.Status}}' '${container_name}'" 2>/dev/null || true)"
+        case "${status}" in
+            running)
+                return 0
+                ;;
+            exited|dead)
+                break
+                ;;
+        esac
+        attempt=$((attempt + 1))
+        sleep 1
+    done
+
+    info "${label} did not stay running; showing podman state and logs..."
+    sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman ps -a --filter name='^${container_name}$' --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'" || true
+    sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman logs '${container_name}' --tail 100" || true
+    return 1
+}
+
 configure_firewall_port_forwards() {
     info "Configuring firewalld port forwarding for rootless Podman..."
     sudo systemctl enable --now firewalld >/dev/null
@@ -290,12 +319,14 @@ COMPOSE_TMP="$(mktemp /tmp/npm-open-appsec-compose.XXXXXX)"
 fetch_file "${REMOTE_COMPOSE_URL}" "${COMPOSE_TMP}"
 install_for_container_user "${COMPOSE_TMP}" "${CONTROL_DIR}/docker-compose.yml" 0644
 rm -f "${COMPOSE_TMP}"
-if [ ! -s "/opt/crowdsec/acquis.d/npm-open-appsec.yaml" ]; then
-    CROWDSEC_TMP="$(mktemp /tmp/npm-open-appsec-crowdsec.XXXXXX)"
-    fetch_file "${REMOTE_CROWDSEC_URL}" "${CROWDSEC_TMP}"
+CROWDSEC_TMP="$(mktemp /tmp/npm-open-appsec-crowdsec.XXXXXX)"
+fetch_file "${REMOTE_CROWDSEC_URL}" "${CROWDSEC_TMP}"
+if ! sudo test -f "/opt/crowdsec/acquis.d/npm-open-appsec.yaml" || ! sudo cmp -s "/opt/crowdsec/acquis.d/npm-open-appsec.yaml" "${CROWDSEC_TMP}" 2>/dev/null; then
     install_for_container_user "${CROWDSEC_TMP}" "/opt/crowdsec/acquis.d/npm-open-appsec.yaml" 0644
+else
     rm -f "${CROWDSEC_TMP}"
 fi
+rm -f "${CROWDSEC_TMP}"
 
 if [[ "${ADVANCED_MODEL_SOURCE}" =~ ^https?:// ]]; then
     info "Downloading advanced model archive..."
@@ -378,10 +409,7 @@ info "Starting the deployment directly with compose..."
 timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"${CONTROL_DIR}\" && \"${COMPOSE_EXEC}\" ${COMPOSE_PROFILE_ARG:+${COMPOSE_PROFILE_ARG} }--env-file .env -f docker-compose.yml up -d --remove-orphans"
 
 if [ "${ENABLE_CROWDSEC}" = "true" ]; then
-    if ! sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman ps --format \"{{.Names}}\"" | grep -Fxq crowdsec; then
-        sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman logs crowdsec --tail 50" >/dev/null 2>&1 || true
-        die "CrowdSec was enabled, but the crowdsec container did not start. Check the compose logs and the enrollment key."
-    fi
+    wait_for_container_running crowdsec "CrowdSec" 120 || die "CrowdSec was enabled, but the crowdsec container did not start. Check the logs above and the enrollment key."
 fi
 
 info "Done."
