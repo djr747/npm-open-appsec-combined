@@ -1,14 +1,11 @@
 ---
-# NPM access-log reader: ingest per-host proxy logs for IP-reputation scoring.
-filenames:
-  - /var/log/npm/proxy-host-*_access.log
-labels:
-  type: nginx
----
 # CrowdSec AppSec listener: inline HTTP request inspection on port 7422.
 # nginx sends auth_request subrequests here; AppSec returns 200 (allow) or 403 (deny).
-listen_addr: 0.0.0.0:7422
-appsec_config: crowdsecurity/appsec-default
 source: appsec
+listen_addr: 0.0.0.0:7422
+path: /
+appsec_configs:
+  - crowdsecurity/appsec-default
 labels:
   type: appsec
+name: npm-open-appsec-appsec

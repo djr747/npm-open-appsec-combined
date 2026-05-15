@@ -204,8 +204,10 @@ docker compose exec crowdsec cscli console status
 
 That compose file is fully declarative:
 
-- CrowdSec acquisition config is provided via a bind-mounted file
+- CrowdSec AppSec acquisition config is provided via a bind-mounted file
   (`/opt/crowdsec/acquis.d/npm-open-appsec.yaml`)
+- if you want NPM access-log ingestion later, add an additional acquisition file
+  under `/opt/crowdsec/acquis.d`
 - `npm-open-appsec` auto-generates the nginx custom includes on first start
 - all proxy hosts are protected automatically through NPM's global `server_proxy.conf` and
   `server_redirect.conf` custom include hooks
@@ -347,9 +349,10 @@ single-sidecar CrowdSec AppSec configuration so the example is deployable as-is.
 If you want cloud-managed open-appsec without CrowdSec enforcement, set
 `CROWDSEC_ENABLED=false`.
 
-The CrowdSec acquisition config is provided declaratively via
+The CrowdSec AppSec acquisition config is provided declaratively via
 `crowdsec/acquis.d/npm-open-appsec.yaml`, which is bind-mounted read-only into the
-CrowdSec container — no shell scripts or runtime file writes are needed.
+CrowdSec container — no shell scripts or runtime file writes are needed. If you want
+NPM access-log ingestion as well, add a separate acquisition file under `crowdsec/acquis.d`.
 
 Set at least:
 
@@ -451,7 +454,7 @@ Use this path when you want a cloud-managed deployment with the advanced model o
     - downloads `docker-compose.cloud-managed.yml`
     - downloads `crowdsec/acquis.d/npm-open-appsec.yaml`
     - if you provide a CrowdSec enrollment key, passes it through so CrowdSec auto-registers on first start
-    - waits for the CrowdSec container to reach `running` and prints its logs if startup fails
+    - waits for the CrowdSec container to reach `running`, then keeps checking that it stays up and prints its logs if startup fails
     - stages the advanced model archive into `/opt/openappsec/open-appsec-advanced-model.tgz`
     - writes a `systemd --user` unit and starts the deployment
 
