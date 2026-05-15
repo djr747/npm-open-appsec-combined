@@ -375,6 +375,10 @@ rm -f "${UNIT_TMP}"
 sudo restorecon -F "${UNIT_PATH}" >/dev/null 2>&1 || true
 
 info "Starting the service..."
+info "Cleaning up any previous deployment..."
+sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DBUS_SESSION_BUS_ADDRESS=\"unix:path=/run/user/${PUID}/bus\"; cd \"\$HOME\" && systemctl --user stop npm-open-appsec.service >/dev/null 2>&1 || true"
+sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"\$HOME\" && ${COMPOSE_EXEC} --env-file .env -f docker-compose.yml down --remove-orphans >/dev/null 2>&1 || true"
+sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"\$HOME\" && podman rm -f npm-open-appsec crowdsec >/dev/null 2>&1 || true"
 sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DBUS_SESSION_BUS_ADDRESS=\"unix:path=/run/user/${PUID}/bus\"; cd \"\$HOME\" && systemctl --user daemon-reload"
 sudo install -d -o "${CONTAINER_USER}" -g "${CONTAINER_USER}" -m 0755 "/home/${CONTAINER_USER}/.config/systemd/user/default.target.wants"
 sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; cd \"\$HOME\" && ln -sfn \"../npm-open-appsec.service\" \".config/systemd/user/default.target.wants/npm-open-appsec.service\""
