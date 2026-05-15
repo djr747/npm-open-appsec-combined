@@ -259,7 +259,7 @@ wait_for_container_running() {
     local container_name="$1"
     local label="$2"
     local timeout_seconds="${3:-120}"
-    local settle_seconds="${4:-180}"
+    local settle_seconds="${4:-60}"
     local attempt=0
     local status=""
     local user_home="/home/${CONTAINER_USER}"
