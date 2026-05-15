@@ -63,6 +63,21 @@ prompt_yes_no() {
     esac
 }
 
+prompt_yes_no_with_previous() {
+    local var_name="$1"
+    local question="$2"
+    local previous_value="${3:-}"
+    local default_value="${4:-Y}"
+    local prompt_default="${default_value}"
+    if [ -n "${previous_value}" ]; then
+        case "${previous_value}" in
+            true|TRUE|yes|YES|y|Y) prompt_default="Y" ;;
+            false|FALSE|no|NO|n|N) prompt_default="N" ;;
+        esac
+    fi
+    prompt_yes_no "${var_name}" "${question}" "${prompt_default}"
+}
+
 ensure_subid_range() {
     local file="$1"
     local entry="${CONTAINER_USER}:100000:65536"
@@ -209,10 +224,11 @@ trap 'kill "${SUDO_KEEPALIVE_PID}" >/dev/null 2>&1 || true' EXIT
 
 load_previous_env
 PREVIOUS_ADVANCED_MODEL_SOURCE="${ADVANCED_MODEL_SOURCE:-}"
+PREVIOUS_CROWDSEC_ENABLED="${CROWDSEC_ENABLED:-}"
 
 prompt "APPSEC_AGENT_TOKEN" "Cloud-managed open-appsec agent token" "${APPSEC_AGENT_TOKEN:-}"
 prompt "APPSEC_USER_EMAIL" "Deployment operator email" "${APPSEC_USER_EMAIL:-}"
-prompt_yes_no "ENABLE_CROWDSEC" "Enable CrowdSec integration" "${CROWDSEC_ENABLED:-Y}"
+prompt_yes_no_with_previous "ENABLE_CROWDSEC" "Enable CrowdSec integration and auto-registration" "${PREVIOUS_CROWDSEC_ENABLED}" "Y"
 if [ "${ENABLE_CROWDSEC}" = "true" ]; then
     prompt "CROWDSEC_ENROLL_KEY" "CrowdSec enrollment key (leave blank to skip registration)" "${CROWDSEC_ENROLL_KEY:-}"
     prompt "CROWDSEC_ENROLL_INSTANCE_NAME" "CrowdSec instance name" "${CROWDSEC_ENROLL_INSTANCE_NAME:-npm-open-appsec}"
