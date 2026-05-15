@@ -13,6 +13,11 @@ CONTROL_DIR="${CONTROL_DIR:-/home/${CONTAINER_USER}/npm-open-appsec}"
 IMAGE_REPOSITORY="${IMAGE_REPOSITORY:-ghcr.io/djr747/npm-open-appsec-combined}"
 NPM_IMAGE_TAG="${NPM_IMAGE_TAG:-latest}"
 TZ_NAME="${TZ:-UTC}"
+NPM_HTTP_PORT="${NPM_HTTP_PORT:-8080}"
+NPM_ADMIN_PORT="${NPM_ADMIN_PORT:-8181}"
+NPM_HTTPS_PORT="${NPM_HTTPS_PORT:-8443}"
+NPM_HTTP_INTERNAL_PORT="${NPM_HTTP_INTERNAL_PORT:-8080}"
+NPM_HTTPS_INTERNAL_PORT="${NPM_HTTPS_INTERNAL_PORT:-8443}"
 
 info() { printf '[%s] %s\n' "$(date -Iseconds)" "$*"; }
 die() { info "FATAL: $*"; exit 1; }
@@ -181,14 +186,17 @@ trap 'kill "${SUDO_KEEPALIVE_PID}" >/dev/null 2>&1 || true' EXIT
 
 load_previous_env
 cd /
+PUID=1000
+PGID=1000
+NPM_HTTP_PORT=8080
+NPM_ADMIN_PORT=8181
+NPM_HTTPS_PORT=8443
+NPM_HTTP_INTERNAL_PORT=8080
+NPM_HTTPS_INTERNAL_PORT=8443
 
 info "Installing packages and enabling rootless Docker support..."
 install_ubuntu_packages
 sudo systemctl disable --now docker.service docker.socket >/dev/null 2>&1 || true
-if ! sudo grep -Fxq 'net.ipv4.ip_unprivileged_port_start = 0' /etc/sysctl.d/99-openappsec-rootless-ports.conf 2>/dev/null; then
-    printf 'net.ipv4.ip_unprivileged_port_start = 0\n' | sudo tee /etc/sysctl.d/99-openappsec-rootless-ports.conf >/dev/null
-    sudo sysctl --system >/dev/null
-fi
 
 info "Ensuring ${CONTAINER_USER} exists and has rootless ranges..."
 if ! id "${CONTAINER_USER}" >/dev/null 2>&1; then
@@ -198,12 +206,13 @@ sudo loginctl enable-linger "${CONTAINER_USER}"
 ensure_subid_range /etc/subuid
 ensure_subid_range /etc/subgid
 
-PUID="$(id -u "${CONTAINER_USER}")"
-PGID="$(id -g "${CONTAINER_USER}")"
+HOST_UID="$(id -u "${CONTAINER_USER}")"
+PUID=1000
+PGID=1000
 USER_HOME="/home/${CONTAINER_USER}"
-USER_RUNTIME_DIR="/run/user/${PUID}"
+USER_RUNTIME_DIR="/run/user/${HOST_UID}"
 USER_ENV=(HOME="${USER_HOME}" XDG_RUNTIME_DIR="${USER_RUNTIME_DIR}" DBUS_SESSION_BUS_ADDRESS="unix:path=${USER_RUNTIME_DIR}/bus" PATH="${USER_HOME}/bin:${USER_HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin")
-sudo systemctl start "user@${PUID}.service" >/dev/null 2>&1 || true
+sudo systemctl start "user@${HOST_UID}.service" >/dev/null 2>&1 || true
 sudo install -d -o "${CONTAINER_USER}" -g "${CONTAINER_USER}" -m 0700 "${USER_RUNTIME_DIR}"
 ensure_docker_compose
 
@@ -252,6 +261,11 @@ ENV_TMP="$(mktemp /tmp/npm-open-appsec-env.XXXXXX)"
     write_env_var PUID "${PUID}"
     write_env_var PGID "${PGID}"
     write_env_var TZ "${TZ_NAME}"
+    write_env_var NPM_HTTP_PORT "${NPM_HTTP_PORT}"
+    write_env_var NPM_ADMIN_PORT "${NPM_ADMIN_PORT}"
+    write_env_var NPM_HTTPS_PORT "${NPM_HTTPS_PORT}"
+    write_env_var NPM_HTTP_INTERNAL_PORT "${NPM_HTTP_INTERNAL_PORT}"
+    write_env_var NPM_HTTPS_INTERNAL_PORT "${NPM_HTTPS_INTERNAL_PORT}"
     write_env_var APPSEC_AUTO_POLICY_LOAD "true"
 } >"${ENV_TMP}"
 if ! sudo test -f "${CONTROL_DIR}/.env" || ! sudo cmp -s "${CONTROL_DIR}/.env" "${ENV_TMP}" 2>/dev/null; then
@@ -276,7 +290,7 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=${CONTROL_DIR}
-Environment=DOCKER_HOST=unix:///run/user/${PUID}/docker.sock
+Environment=DOCKER_HOST=unix:///run/user/${HOST_UID}/docker.sock
 ExecStart=${COMPOSE_EXEC} --env-file .env -f docker-compose.yml up -d --remove-orphans
 TimeoutStartSec=0
 TimeoutStopSec=0
@@ -287,19 +301,19 @@ EOF
 install_text_for_container_user "${UNIT_TMP}" "${UNIT_PATH}" 0644
 rm -f "${UNIT_TMP}"
 sudo restorecon -F "${UNIT_PATH}" >/dev/null 2>&1 || true
-sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DBUS_SESSION_BUS_ADDRESS=\"unix:path=/run/user/${PUID}/bus\"; cd \"\$HOME\" && systemctl --user daemon-reload"
+sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${HOST_UID}\"; export DBUS_SESSION_BUS_ADDRESS=\"unix:path=/run/user/${HOST_UID}/bus\"; cd \"\$HOME\" && systemctl --user daemon-reload"
 
 info "Starting the service..."
 info "Cleaning up any previous deployment..."
-timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"${CONTROL_DIR}\" && ${COMPOSE_EXEC} --env-file .env -f docker-compose.yml down --remove-orphans" || true
-timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"\$HOME\" && docker rm -f npm-open-appsec" || true
-if sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"\$HOME\" && docker ps -a --format '{{.Names}}'" | grep -Fxq npm-open-appsec; then
+timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${HOST_UID}\"; export DOCKER_HOST=\"unix:///run/user/${HOST_UID}/docker.sock\"; cd \"${CONTROL_DIR}\" && ${COMPOSE_EXEC} --env-file .env -f docker-compose.yml down --remove-orphans" || true
+timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${HOST_UID}\"; export DOCKER_HOST=\"unix:///run/user/${HOST_UID}/docker.sock\"; cd \"\$HOME\" && docker rm -f npm-open-appsec" || true
+if sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${HOST_UID}\"; export DOCKER_HOST=\"unix:///run/user/${HOST_UID}/docker.sock\"; cd \"\$HOME\" && docker ps -a --format '{{.Names}}'" | grep -Fxq npm-open-appsec; then
     die "Previous container is still present after cleanup. Remove it manually with docker rm -f npm-open-appsec, then rerun the script."
 fi
 info "Starting the deployment directly with compose..."
-timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DOCKER_HOST=\"unix:///run/user/${PUID}/docker.sock\"; cd \"${CONTROL_DIR}\" && ${COMPOSE_EXEC} --env-file .env -f docker-compose.yml up -d --remove-orphans"
+timeout 30s sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${HOST_UID}\"; export DOCKER_HOST=\"unix:///run/user/${HOST_UID}/docker.sock\"; cd \"${CONTROL_DIR}\" && ${COMPOSE_EXEC} --env-file .env -f docker-compose.yml up -d --remove-orphans"
 
 info "Done."
 info "Control directory: ${CONTROL_DIR}"
 info "Service directories: /opt/npm and /opt/openappsec"
-info "To manage later, run systemctl --user as ${CONTAINER_USER} with XDG_RUNTIME_DIR=/run/user/${PUID}."
+info "To manage later, run systemctl --user as ${CONTAINER_USER} with XDG_RUNTIME_DIR=/run/user/${HOST_UID}."

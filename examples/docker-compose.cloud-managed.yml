@@ -3,12 +3,14 @@ services:
     # Set IMAGE_REPOSITORY (via .env or export) to the full GHCR image reference.
     image: ${IMAGE_REPOSITORY:-ghcr.io/djr747/npm-open-appsec-combined}:${NPM_IMAGE_TAG:-latest}
     container_name: npm-open-appsec
-    cap_add:
-      - NET_BIND_SERVICE
     restart: unless-stopped
     environment:
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
+      # Internal NPM listeners are rewritten to high ports so rootless Podman
+      # can publish them without host sysctl tweaks.
+      - NPM_HTTP_INTERNAL_PORT=${NPM_HTTP_INTERNAL_PORT:-8080}
+      - NPM_HTTPS_INTERNAL_PORT=${NPM_HTTPS_INTERNAL_PORT:-8443}
       # Cloud-managed policy: set APPSEC_AGENT_TOKEN.
       # Local policy mode: leave APPSEC_AGENT_TOKEN empty and provide local_policy.yaml in /opt/openappsec/localconfig.
       - AGENT_TOKEN=${APPSEC_AGENT_TOKEN:-}
@@ -26,9 +28,9 @@ services:
       # To edit later, manually update the generated map block in that file.
       - CROWDSEC_SKIP_HOSTS=${CROWDSEC_SKIP_HOSTS:-}
     ports:
-      - "${NPM_HTTP_PORT:-8080}:80"
+      - "${NPM_HTTP_PORT:-8080}:${NPM_HTTP_INTERNAL_PORT:-8080}"
       - "${NPM_ADMIN_PORT:-8181}:81"
-      - "${NPM_HTTPS_PORT:-8443}:443"
+      - "${NPM_HTTPS_PORT:-8443}:${NPM_HTTPS_INTERNAL_PORT:-8443}"
     volumes:
       # Shared with CrowdSec's read-only log mount below, so this path uses a shared SELinux label.
       - /opt/npm/data:/data:z,U

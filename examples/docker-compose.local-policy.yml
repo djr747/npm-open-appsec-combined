@@ -7,6 +7,10 @@ services:
     environment:
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
+      # Internal NPM listeners are rewritten to high ports so rootless Docker
+      # can publish them without changing the upstream container user model.
+      - NPM_HTTP_INTERNAL_PORT=${NPM_HTTP_INTERNAL_PORT:-8080}
+      - NPM_HTTPS_INTERNAL_PORT=${NPM_HTTPS_INTERNAL_PORT:-8443}
       # No AGENT_TOKEN in local-policy mode - the agent runs fully offline.
       # autoPolicyLoad=true causes the agent to reload policy from /ext/appsec whenever
       # local_policy.yaml changes, without requiring a restart.
@@ -17,9 +21,9 @@ services:
       # with autoPolicyLoad gives full WAF enforcement without them. If you later want the ML
       # tuning loop, refer to the NPMplus compose.yaml for the full optional setup.
     ports:
-      - "80:80"
-      - "81:81"
-      - "443:443"
+      - "${NPM_HTTP_PORT:-8080}:${NPM_HTTP_INTERNAL_PORT:-8080}"
+      - "${NPM_ADMIN_PORT:-8181}:81"
+      - "${NPM_HTTPS_PORT:-8443}:${NPM_HTTPS_INTERNAL_PORT:-8443}"
     volumes:
       - /opt/npm/data:/data
       - /opt/npm/letsencrypt:/etc/letsencrypt

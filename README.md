@@ -366,6 +366,8 @@ Optional and recommended:
 - `CROWDSEC_ENROLL_KEY` (optional, to register this CrowdSec instance in CrowdSec Console)
 - `CROWDSEC_ENROLL_INSTANCE_NAME` (optional display name in CrowdSec Console)
 
+The rootless examples keep the upstream NPM user model (`PUID` / `PGID` default to `1000`), and the container startup script normalizes nginx listeners to the configured internal ports. In the rootless examples those internal ports are set to `8080` / `8443`, while the host-side session still runs as `containeruser`.
+
 If you want CrowdSec account registration, generate an enrollment token in CrowdSec Console and set:
 
 ```bash
@@ -445,20 +447,21 @@ Use this path when you want a cloud-managed deployment with the advanced model o
    - advanced model archive URL or a local file path
 
 4. The script then:
-    - installs rootless Podman prerequisites
-    - installs `podman-compose` into `~/.local/bin` with `pip` if it is not already present
-    - falls back to the upstream `podman-compose` source archive if the PyPI install fails
-    - creates `containeruser` if it does not exist
-    - enables lingering so the user service survives logout
-    - automatically flips SELinux to enforcing when possible and persists the change; if SELinux was disabled at boot, it updates `/etc/selinux/config` and asks for one reboot
-    - configures firewalld to forward 80, 81, and 443 to the rootless NPM ports (8080, 8181, 8443)
-    - runs the CrowdSec service from the rootless `containeruser` session and keeps `/opt/crowdsec/data` writable for reruns
-    - downloads `docker-compose.cloud-managed.yml`
-    - downloads `crowdsec/acquis.d/npm-open-appsec.yaml`
-    - if you provide a CrowdSec enrollment key, passes it through so CrowdSec auto-registers on first start
-    - waits for the CrowdSec container to reach `running`, then keeps checking that it stays up and prints its logs if startup fails
-    - stages the advanced model archive into `/opt/openappsec/open-appsec-advanced-model.tgz`
-    - writes a `systemd --user` unit and starts the deployment
+   - installs rootless Podman prerequisites
+   - installs `podman-compose` into `~/.local/bin` with `pip` if it is not already present
+   - falls back to the upstream `podman-compose` source archive if the PyPI install fails
+   - creates `containeruser` if it does not exist
+   - enables lingering so the user service survives logout
+   - automatically flips SELinux to enforcing when possible and persists the change; if SELinux was disabled at boot, it updates `/etc/selinux/config` and asks for one reboot
+   - configures firewalld to forward 80, 81, and 443 to the rootless NPM ports (8080, 8181, 8443)
+   - keeps the container-side NPM user model aligned with upstream while rewriting nginx listener ports to the configured internal ports
+   - runs the CrowdSec service from the rootless `containeruser` session and keeps `/opt/crowdsec/data` writable for reruns
+   - downloads `docker-compose.cloud-managed.yml`
+   - downloads `crowdsec/acquis.d/npm-open-appsec.yaml`
+   - if you provide a CrowdSec enrollment key, passes it through so CrowdSec auto-registers on first start
+   - waits for the CrowdSec container to reach `running`, then keeps checking that it stays up and prints its logs if startup fails
+   - stages the advanced model archive into `/opt/openappsec/open-appsec-advanced-model.tgz`
+   - writes a `systemd --user` unit and starts the deployment
 
 5. After it finishes:
    - private compose control files live under `/home/containeruser/npm-open-appsec`
@@ -481,6 +484,8 @@ Run `./rocky-rhel10-cloud-managed-advanced.sh --help` if you want the quick-star
 #### Ubuntu 26.04
 
 Use this path when you want a local-policy deployment with rootless Docker on Ubuntu 26.04.
+
+The Ubuntu bootstrap publishes NPM on high ports by default (`8080` / `8181` / `8443`) so it stays rootless-safe without changing any privileged-port sysctls.
 
 1. Download the script:
 

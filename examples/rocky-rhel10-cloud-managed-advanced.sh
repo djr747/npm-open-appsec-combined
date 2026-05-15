@@ -16,6 +16,8 @@ TZ_NAME="${TZ:-UTC}"
 NPM_HTTP_PORT="${NPM_HTTP_PORT:-8080}"
 NPM_ADMIN_PORT="${NPM_ADMIN_PORT:-8181}"
 NPM_HTTPS_PORT="${NPM_HTTPS_PORT:-8443}"
+NPM_HTTP_INTERNAL_PORT="${NPM_HTTP_INTERNAL_PORT:-8080}"
+NPM_HTTPS_INTERNAL_PORT="${NPM_HTTPS_INTERNAL_PORT:-8443}"
 
 info() { printf '[%s] %s\n' "$(date -Iseconds)" "$*"; }
 die() { info "FATAL: $*"; exit 1; }
@@ -266,7 +268,7 @@ wait_for_container_running() {
     local user_path="${user_home}/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
     while [ "${attempt}" -lt "${timeout_seconds}" ]; do
-        status="$(sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman inspect -f '{{.State.Status}}' '${container_name}'" 2>/dev/null || true)"
+        status="$(sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; export XDG_RUNTIME_DIR=\"/run/user/${HOST_UID}\"; cd \"\$HOME\" && podman inspect -f '{{.State.Status}}' '${container_name}'" 2>/dev/null || true)"
         case "${status}" in
             running)
                 break
@@ -281,19 +283,19 @@ wait_for_container_running() {
 
     if [ "${status}" != "running" ]; then
         info "${label} did not stay running; showing podman state and logs..."
-        sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman ps -a --filter name='^${container_name}$' --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'" || true
-        sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman logs '${container_name}' --tail 100" || true
+        sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; export XDG_RUNTIME_DIR=\"/run/user/${HOST_UID}\"; cd \"\$HOME\" && podman ps -a --filter name='^${container_name}$' --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'" || true
+        sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; export XDG_RUNTIME_DIR=\"/run/user/${HOST_UID}\"; cd \"\$HOME\" && podman logs '${container_name}' --tail 100" || true
         return 1
     fi
 
     info "${label} is running; waiting ${settle_seconds}s to confirm it stays up..."
     attempt=0
     while [ "${attempt}" -lt "${settle_seconds}" ]; do
-        status="$(sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman inspect -f '{{.State.Status}}' '${container_name}'" 2>/dev/null || true)"
+        status="$(sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; export XDG_RUNTIME_DIR=\"/run/user/${HOST_UID}\"; cd \"\$HOME\" && podman inspect -f '{{.State.Status}}' '${container_name}'" 2>/dev/null || true)"
         if [ "${status}" != "running" ]; then
             info "${label} exited during the stability window; showing podman state and logs..."
-            sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman ps -a --filter name='^${container_name}$' --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'" || true
-            sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman logs '${container_name}' --tail 100" || true
+            sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; export XDG_RUNTIME_DIR=\"/run/user/${HOST_UID}\"; cd \"\$HOME\" && podman ps -a --filter name='^${container_name}$' --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'" || true
+            sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; export XDG_RUNTIME_DIR=\"/run/user/${HOST_UID}\"; cd \"\$HOME\" && podman logs '${container_name}' --tail 100" || true
             return 1
         fi
         attempt=$((attempt + 1))
@@ -341,6 +343,13 @@ trap 'kill "${SUDO_KEEPALIVE_PID}" >/dev/null 2>&1 || true' EXIT
 
 load_previous_env
 cd /
+PUID=1000
+PGID=1000
+NPM_HTTP_PORT=8080
+NPM_ADMIN_PORT=8181
+NPM_HTTPS_PORT=8443
+NPM_HTTP_INTERNAL_PORT=8080
+NPM_HTTPS_INTERNAL_PORT=8443
 PREVIOUS_ADVANCED_MODEL_SOURCE="${ADVANCED_MODEL_SOURCE:-}"
 PREVIOUS_CROWDSEC_ENABLED="${CROWDSEC_ENABLED:-}"
 
@@ -377,9 +386,10 @@ fi
 sudo loginctl enable-linger "${CONTAINER_USER}"
 ensure_subid_range /etc/subuid
 ensure_subid_range /etc/subgid
-PUID="$(id -u "${CONTAINER_USER}")"
-PGID="$(id -g "${CONTAINER_USER}")"
-sudo systemctl start "user@${PUID}.service" >/dev/null 2>&1 || true
+HOST_UID="$(id -u "${CONTAINER_USER}")"
+PUID=1000
+PGID=1000
+sudo systemctl start "user@${HOST_UID}.service" >/dev/null 2>&1 || true
 ensure_podman_compose
 
 info "Preparing private control directory under ${CONTROL_DIR}..."
@@ -447,6 +457,8 @@ ENV_TMP="$(mktemp /tmp/npm-open-appsec-env.XXXXXX)"
     write_env_var NPM_HTTP_PORT "${NPM_HTTP_PORT}"
     write_env_var NPM_ADMIN_PORT "${NPM_ADMIN_PORT}"
     write_env_var NPM_HTTPS_PORT "${NPM_HTTPS_PORT}"
+    write_env_var NPM_HTTP_INTERNAL_PORT "${NPM_HTTP_INTERNAL_PORT}"
+    write_env_var NPM_HTTPS_INTERNAL_PORT "${NPM_HTTPS_INTERNAL_PORT}"
     write_env_var APPSEC_AGENT_TOKEN "${APPSEC_AGENT_TOKEN}"
     write_env_var APPSEC_USER_EMAIL "${APPSEC_USER_EMAIL}"
     write_env_var APPSEC_AUTO_POLICY_LOAD "true"
@@ -489,17 +501,17 @@ EOF
 install_text_for_container_user "${UNIT_TMP}" "${UNIT_PATH}" 0644
 rm -f "${UNIT_TMP}"
 sudo restorecon -F "${UNIT_PATH}" >/dev/null 2>&1 || true
-run_user_shell_logged "systemd-daemon-reload" 30 "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; export DBUS_SESSION_BUS_ADDRESS=\"unix:path=/run/user/${PUID}/bus\"; cd \"\$HOME\" && systemctl --user daemon-reload" || true
+run_user_shell_logged "systemd-daemon-reload" 30 "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${HOST_UID}\"; export DBUS_SESSION_BUS_ADDRESS=\"unix:path=/run/user/${HOST_UID}/bus\"; cd \"\$HOME\" && systemctl --user daemon-reload" || true
 
 info "Starting the service..."
 info "Cleaning up any previous deployment..."
-run_user_shell_logged "compose-down" 30 "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"${CONTROL_DIR}\" && ${COMPOSE_EXEC} ${COMPOSE_PROFILE_ARG:+${COMPOSE_PROFILE_ARG} }--env-file .env -f docker-compose.yml down --remove-orphans" || true
-run_user_shell_logged "podman-rm" 30 "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman rm -f npm-open-appsec crowdsec" || true
-if sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman ps -a --format '{{.Names}}'" | grep -Eq '^(npm-open-appsec|crowdsec)$'; then
+run_user_shell_logged "compose-down" 30 "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${HOST_UID}\"; cd \"${CONTROL_DIR}\" && ${COMPOSE_EXEC} ${COMPOSE_PROFILE_ARG:+${COMPOSE_PROFILE_ARG} }--env-file .env -f docker-compose.yml down --remove-orphans" || true
+run_user_shell_logged "podman-rm" 30 "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${HOST_UID}\"; cd \"\$HOME\" && podman rm -f npm-open-appsec crowdsec" || true
+if sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${HOST_UID}\"; cd \"\$HOME\" && podman ps -a --format '{{.Names}}'" | grep -Eq '^(npm-open-appsec|crowdsec)$'; then
     die "Previous containers are still present after cleanup. Remove them manually with podman rm -f npm-open-appsec crowdsec, then rerun the script."
 fi
 info "Starting the deployment directly with compose..."
-run_user_shell_logged "compose-up" 30 "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"${CONTROL_DIR}\" && \"${COMPOSE_EXEC}\" ${COMPOSE_PROFILE_ARG:+${COMPOSE_PROFILE_ARG} }--env-file .env -f docker-compose.yml up -d --remove-orphans"
+run_user_shell_logged "compose-up" 30 "export HOME=\"/home/${CONTAINER_USER}\"; export XDG_RUNTIME_DIR=\"/run/user/${HOST_UID}\"; cd \"${CONTROL_DIR}\" && \"${COMPOSE_EXEC}\" ${COMPOSE_PROFILE_ARG:+${COMPOSE_PROFILE_ARG} }--env-file .env -f docker-compose.yml up -d --remove-orphans"
 
 if [ "${ENABLE_CROWDSEC}" = "true" ]; then
     wait_for_container_running crowdsec "CrowdSec" 120 || die "CrowdSec was enabled, but the crowdsec container did not start. Check the logs above and the enrollment key."
@@ -508,4 +520,4 @@ fi
 info "Done."
 info "Control directory: ${CONTROL_DIR}"
 info "Service directories: /opt/npm, /opt/openappsec, /opt/crowdsec"
-info "To manage later, run systemctl --user as ${CONTAINER_USER} with XDG_RUNTIME_DIR=/run/user/${PUID}."
+info "To manage later, run systemctl --user as ${CONTAINER_USER} with XDG_RUNTIME_DIR=/run/user/${HOST_UID}."
