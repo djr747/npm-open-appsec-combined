@@ -451,6 +451,7 @@ Use this path when you want a cloud-managed deployment with the advanced model o
     - creates `containeruser` if it does not exist
     - enables lingering so the user service survives logout
     - configures firewalld to forward 80, 81, and 443 to the rootless NPM ports (8080, 8181, 8443)
+    - runs the CrowdSec service as the same numeric `PUID` / `PGID` as `containeruser` so the bind-mounted data directory stays writable
     - downloads `docker-compose.cloud-managed.yml`
     - downloads `crowdsec/acquis.d/npm-open-appsec.yaml`
     - if you provide a CrowdSec enrollment key, passes it through so CrowdSec auto-registers on first start

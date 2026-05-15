@@ -44,9 +44,15 @@ services:
     container_name: crowdsec
     profiles:
       - crowdsec
+    # Run the CrowdSec process as the same numeric user/group as the host
+    # control user so the rootless Podman bind mount stays writable on reruns.
+    userns_mode: keep-id
+    user: "${PUID:-1000}:${PGID:-1000}"
     restart: unless-stopped
     environment:
       - TZ=${TZ:-UTC}
+      - PUID=${PUID:-1000}
+      - GID=${PGID:-1000}
       - USE_WAL=true
       # CrowdSec AppSec runs inline over port 7422; no extra bouncer sidecar needed.
       - COLLECTIONS=crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules

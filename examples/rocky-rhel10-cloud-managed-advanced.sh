@@ -223,7 +223,7 @@ wait_for_container_running() {
         status="$(sudo -u "${CONTAINER_USER}" -H sh -lc "export HOME=\"${user_home}\"; export PATH=\"${user_path}\"; export XDG_RUNTIME_DIR=\"/run/user/${PUID}\"; cd \"\$HOME\" && podman inspect -f '{{.State.Status}}' '${container_name}'" 2>/dev/null || true)"
         case "${status}" in
             running)
-                return 0
+                break
                 ;;
             exited|dead|restarting|paused)
                 break
@@ -349,6 +349,7 @@ sudo install -d -o "${CONTAINER_USER}" -g "${CONTAINER_USER}" -m 0755 \
     "/opt/openappsec/logs" \
     "/opt/crowdsec/data" \
     "/opt/crowdsec/acquis.d"
+sudo chmod 0775 "/opt/crowdsec/data"
 
 info "Downloading the compose and CrowdSec assets..."
 COMPOSE_TMP="$(mktemp /tmp/npm-open-appsec-compose.XXXXXX)"
