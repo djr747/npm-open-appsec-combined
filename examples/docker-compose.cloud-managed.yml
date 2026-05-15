@@ -3,6 +3,8 @@ services:
     # Set IMAGE_REPOSITORY (via .env or export) to the full GHCR image reference.
     image: ${IMAGE_REPOSITORY:-ghcr.io/djr747/npm-open-appsec-combined}:${NPM_IMAGE_TAG:-latest}
     container_name: npm-open-appsec
+    cap_add:
+      - NET_BIND_SERVICE
     restart: unless-stopped
     environment:
       - PUID=${PUID:-1000}

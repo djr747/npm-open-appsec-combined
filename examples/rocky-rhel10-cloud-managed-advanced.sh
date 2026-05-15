@@ -396,6 +396,15 @@ sudo install -d -o "${CONTAINER_USER}" -g "${CONTAINER_USER}" -m 0755 \
     "/opt/openappsec/logs" \
     "/opt/crowdsec/data" \
     "/opt/crowdsec/acquis.d"
+sudo chown -R "${CONTAINER_USER}:${CONTAINER_USER}" \
+    "/opt/npm/data" \
+    "/opt/npm/letsencrypt" \
+    "/opt/openappsec/localconfig" \
+    "/opt/openappsec/conf" \
+    "/opt/openappsec/data" \
+    "/opt/openappsec/logs" \
+    "/opt/crowdsec/data" \
+    "/opt/crowdsec/acquis.d"
 sudo chmod 0775 "/opt/crowdsec/data"
 
 info "Downloading the compose and CrowdSec assets..."
