@@ -25,7 +25,7 @@ This removes the cross-container IPC/shared-memory requirement for NPM + open-ap
 ### What is patched on each build
 
 - **Debian packages** — every build runs `apt-get -y upgrade` inside the final image to apply
-  all Debian 12 (bookworm) security patches available at build time.
+  all Debian 13 (trixie) security patches available at build time.
 - **Go stdlib (cert-prune)** — the `cert-prune` utility is compiled with `golang:1.26`, which
   tracks the latest Go 1.26 patch releases. This keeps the binary above the fix thresholds
   for Go stdlib CVEs such as CVE-2026-27143 (requires ≥ 1.25.9 / 1.26.2).
