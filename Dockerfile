@@ -25,7 +25,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update \
         git \
         libbrotli-dev \
         libmaxminddb-dev \
-        libpcre3-dev \
+        libpcre2-dev \
         libssl-dev \
         libxml2-dev \
         pkg-config \
